@@ -1,307 +1,369 @@
 # Lambda Monitoring with OpenSearch
 
-A comprehensive monitoring solution for AWS Lambda functions using OpenSearch for log aggregation, metric analysis, and alerting.
+A comprehensive Lambda monitoring solution using OpenSearch, deployed with Terraform.
 
 ## Table of Contents
 - [Features](#features)
 - [Architecture](#architecture)
 - [Prerequisites](#prerequisites)
-- [Installation](#installation)
-- [Configuration](#configuration)
+- [Deployment](#deployment)
+  - [Quick Start](#quick-start)
+  - [Advanced Configuration](#advanced-configuration)
+  - [Multiple Environments](#multiple-environments)
 - [Usage](#usage)
 - [Metrics](#metrics)
 - [Alerts](#alerts)
-- [Contributing](#contributing)
+- [Maintenance](#maintenance)
 - [Troubleshooting](#troubleshooting)
 
 ## Features
 
 ### Core Functionality
-- Real-time log aggregation
+- Real-time log aggregation and analysis
 - Performance metric tracking
 - Error detection and analysis
 - Cost monitoring
 - Health score calculation
 - Automated alerting
+- VPC-based secure deployment
+- Cross-account monitoring support
 
-### Metrics Tracked
-- Function duration
-- Memory usage
-- Error rates
-- Cold starts
-- Cost (GB-seconds)
-- Custom health scores
+### Monitored Metrics
+```yaml
+Performance:
+  - Function duration
+  - Memory usage
+  - Cold starts
+  - Throttling events
 
-### Alert Types
-- Performance degradation
-- Error rate spikes
-- Cost surges
-- Memory utilization
-- Composite health scores
+Errors:
+  - Error rates
+  - Exception patterns
+  - Stack traces
+  - Timeout occurrences
+
+Cost:
+  - GB-seconds usage
+  - Invocation costs
+  - Memory optimization
+  - Duration trends
+```
 
 ## Architecture
 
 ```mermaid
-graph LR
-    A[Lambda Functions] --> B[CloudWatch Logs]
-    B --> C[Log Shipper Lambda]
-    C --> D[OpenSearch]
-    D --> E[Dashboards]
-    D --> F[Alerts]
-    F --> G[Notification Systems]
+graph TB
+    subgraph VPC
+        subgraph Private Subnet
+            B[Lambda Monitor]
+            C[OpenSearch Domain]
+        end
+        subgraph Public Subnet
+            D[NAT Gateway]
+        end
+    end
+    
+    A[Lambda Functions] -->|Logs| B
+    B -->|Indexes| C
+    B -->|Internet Access| D
+    C -->|Alerts| E[Notification Systems]
 ```
 
 ## Prerequisites
 
-1. AWS Services:
-   - AWS Lambda
-   - Amazon OpenSearch Service
-   - CloudWatch Logs
-   - IAM roles and permissions
-
-2. Python Dependencies:
+### Required Tools
 ```bash
-pip install -r requirements.txt
+# Terraform version 1.0+
+terraform version
+
+# AWS CLI configured
+aws configure
+
+# Python 3.9+ (for local development)
+python --version
 ```
 
-3. Required IAM Permissions:
-```json
+### AWS Resources
+- VPC with private subnets
+- NAT Gateway/Instance
+- S3 bucket for Terraform state
+- Route53 Hosted Zone (optional)
+
+### Access Requirements
+```hcl
+# Minimum IAM permissions for deployment
 {
-    "Version": "2012-10-17",
-    "Statement": [
-        {
-            "Effect": "Allow",
-            "Action": [
-                "es:ESHttp*",
-                "logs:CreateLogGroup",
-                "logs:CreateLogStream",
-                "logs:PutLogEvents"
-            ],
-            "Resource": "*"
-        }
-    ]
-}
-```
-
-## Installation
-
-1. Deploy OpenSearch Domain:
-```bash
-aws cloudformation deploy \
-    --template-file templates/opensearch.yaml \
-    --stack-name lambda-monitoring \
-    --capabilities CAPABILITY_IAM
-```
-
-2. Deploy Log Shipper:
-```bash
-# Install dependencies
-pip install -r requirements.txt -t ./
-
-# Package the function
-zip -r function.zip ./*
-
-# Deploy the function to kenbi-dev account
-aws lambda create-function \
-    --function-name lambda-log-shipper \
-    --runtime python3.9 \
-    --handler lambda_monitor.lambda_handler \
-    --zip-file fileb://function.zip \
-    --role arn:aws:iam::689127934821:role/lambda-log-shipper
-```
-
-3. Configure Log Subscription:
-```bash
-aws logs put-subscription-filter \
-    --log-group-name "/aws/lambda/monitoring-function" \
-    --filter-name "ship-to-opensearch" \
-    --filter-pattern "" \
-    --destination-arn "<log-shipper-arn>"
-```
-
-## Configuration
-
-### Environment Variables
-```bash
-OPENSEARCH_ENDPOINT=your-opensearch-endpoint
-AWS_REGION=your-aws-region
-LOG_LEVEL=INFO
-ALERT_WEBHOOK_URL=your-webhook-url
-```
-
-### OpenSearch Index Settings
-```json
-{
-    "index_patterns": ["lambda-logs-*"],
-    "settings": {
-        "number_of_shards": 1,
-        "number_of_replicas": 1,
-        "index.lifecycle.name": "lambda_logs_policy"
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "lambda:*",
+        "es:*",
+        "ec2:*",
+        "iam:*",
+        "logs:*",
+        "s3:*",
+        "kms:*"
+      ],
+      "Resource": "*"
     }
+  ]
 }
+```
+
+## Deployment
+
+### Quick Start
+
+1. Clone and initialize:
+```bash
+git clone https://github.com/your-org/lambda-monitor
+cd lambda-monitor
+terraform init
+```
+
+2. Create terraform.tfvars:
+```hcl
+# Infrastructure Configuration
+aws_region         = "us-west-2"
+environment        = "prod"
+project_name       = "lambda-monitor"
+
+# VPC Configuration
+vpc_id             = "vpc-xxxxx"
+subnet_ids         = ["subnet-xxxxx", "subnet-yyyyy"]
+
+# OpenSearch Configuration
+opensearch_instance_type  = "t3.small.search"
+opensearch_instance_count = 1
+opensearch_volume_size    = 10
+
+# Security Configuration
+opensearch_master_user     = "admin"
+opensearch_master_password = "your-secure-password"
+
+# Monitoring Configuration
+alert_webhook_url = "https://your-webhook-url"
+log_retention_days = 30
+```
+
+3. Package function code:
+```bash
+# Create Lambda package
+make package-lambda
+
+# Or manually
+zip -r function.zip lambda_monitor.py
+zip -r layer.zip python/
+```
+
+4. Deploy:
+```bash
+terraform plan -out=tfplan
+terraform apply tfplan
+```
+
+### Advanced Configuration
+
+#### Custom Domain Configuration
+```hcl
+# terraform.tfvars
+domain_name = "monitor.example.com"
+create_custom_domain = true
+route53_zone_id = "Z123456789ABC"
+```
+
+#### Enhanced Security Configuration
+```hcl
+# terraform.tfvars
+enable_encryption = true
+create_kms_key = true
+enable_vpc_endpoints = true
+enable_waf = true
+```
+
+#### High Availability Setup
+```hcl
+# terraform.tfvars
+opensearch_instance_count = 3
+multi_az = true
+zone_awareness_enabled = true
+```
+
+### Multiple Environments
+
+Using Terraform workspaces:
+```bash
+# Create workspaces
+terraform workspace new dev
+terraform workspace new staging
+terraform workspace new prod
+
+# Select workspace
+terraform workspace select dev
+
+# Deploy with environment-specific vars
+terraform apply -var-file="env/dev.tfvars"
 ```
 
 ## Usage
 
-### Basic Implementation
+### Monitoring Examples
+
+1. Get function metrics:
+```python
+# Using boto3
+import boto3
+
+client = boto3.client('opensearch')
+domain_endpoint = client.describe_domain(
+    DomainName=domain_name
+)['DomainStatus']['Endpoints']['vpc']
+```
+
+2. Configure alerts:
 ```python
 from lambda_monitor import LambdaMonitor
 
-# Initialize monitor
-monitor = LambdaMonitor(opensearch_endpoint='your-endpoint')
-
-# Process events
-monitor.process_cloudwatch_event(event)
-
-# Get metrics
-metrics = monitor.get_metrics(
-    function_name='monitoring-function',
-    start_time='2024-01-01T00:00:00Z'
-)
-```
-
-### Creating Alerts
-```python
-# Create performance alert
-alert_config = {
-    "name": "High Duration Alert",
+monitor = LambdaMonitor(opensearch_endpoint=domain_endpoint)
+monitor.create_alert({
+    "name": "High Error Rate",
     "trigger": {
         "schedule": {"interval": "5m"},
         "condition": {
-            "script": {
-                "source": "ctx.results[0].aggregations.duration_p95 > 1000"
-            }
+            "script": "ctx.results[0].error_rate > 5"
         }
     }
-}
-monitor.create_alert(alert_config)
-```
-
-### Querying Metrics
-```python
-# Get function metrics
-metrics = monitor.get_metrics(
-    function_name='my-function',
-    start_time='2024-01-01T00:00:00Z',
-    end_time='2024-01-02T00:00:00Z'
-)
-
-# Process metrics
-for function in metrics['aggregations']['by_function']['buckets']:
-    print(f"Function: {function['key']}")
-    print(f"Error Rate: {function['error_rate']['value']}%")
-    print(f"Avg Duration: {function['duration_stats']['avg']}ms")
+})
 ```
 
 ## Metrics
 
-### Base Metrics
-| Metric | Description | Unit |
-|--------|-------------|------|
-| duration | Function execution time | milliseconds |
-| memory_used | Memory consumed | MB |
-| error_rate | Rate of errors | percentage |
-| cold_starts | Cold start count | count |
+### Performance Metrics
+| Metric | Description | Threshold | Alert |
+|--------|-------------|-----------|--------|
+| duration_p95 | 95th percentile duration | 1000ms | High |
+| memory_utilization | Memory usage percentage | 80% | Medium |
+| cold_start_rate | Cold start percentage | 10% | Low |
 
-### Derived Metrics
-| Metric | Calculation | Unit |
-|--------|-------------|------|
-| memory_utilization | memory_used / max_memory * 100 | percentage |
-| cost_gb_seconds | (memory_gb * duration_seconds) | GB-seconds |
-| health_score | Composite score based on multiple metrics | 0-100 |
+### Cost Metrics
+| Metric | Description | Threshold | Alert |
+|--------|-------------|-----------|--------|
+| gb_seconds | GB-seconds consumed | Varies | Medium |
+| invocation_cost | Cost per invocation | $0.01 | Low |
+| total_cost | Daily cost | $100 | High |
 
-## Alerts
+## Maintenance
 
-### Available Alert Types
-1. Performance Alerts
-   - Duration thresholds
-   - Memory utilization
-   - Cold start frequency
+### Regular Tasks
+```bash
+# Update dependencies
+terraform init -upgrade
 
-2. Error Alerts
-   - Error rate thresholds
-   - Error pattern detection
-   - Error clustering
+# Plan infrastructure updates
+terraform plan
 
-3. Cost Alerts
-   - Cost thresholds
-   - Usage spikes
-   - Trend analysis
+# Apply security patches
+terraform apply -target=aws_opensearch_domain.monitoring
 
-### Alert Configuration
-```json
-{
-    "name": "Example Alert",
-    "severity": "critical",
-    "trigger": {
-        "schedule": {"interval": "5m"},
-        "condition": {
-            "script": {
-                "source": "ctx.results[0].value > 100"
-            }
-        }
-    },
-    "actions": [
-        {
-            "type": "webhook",
-            "url": "your-webhook-url"
-        }
-    ]
-}
+# Rotate credentials
+terraform taint aws_secretsmanager_secret.opensearch_master
+terraform apply
 ```
 
-## Contributing
+### Backup and Restore
+```bash
+# Backup OpenSearch indices
+curl -X PUT "https://${domain_endpoint}/_snapshot/backup_repository"
 
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+# Restore from snapshot
+curl -X POST "https://${domain_endpoint}/_snapshot/backup_repository/snapshot_1/_restore"
+```
 
 ## Troubleshooting
 
 ### Common Issues
 
-1. OpenSearch Connection Issues
-```python
-# Check connectivity
-monitor = LambdaMonitor(opensearch_endpoint='your-endpoint')
-status = monitor.check_connection()
+1. OpenSearch Connection:
+```bash
+# Test VPC connectivity
+aws ec2 describe-network-interfaces \
+    --filters Name=vpc-id,Values=${vpc_id}
+
+# Check security groups
+aws ec2 describe-security-groups \
+    --group-ids ${security_group_id}
 ```
 
-2. Missing Metrics
-- Verify CloudWatch log format
-- Check IAM permissions
-- Validate log subscription filters
+2. Lambda Deployment:
+```bash
+# Check Lambda logs
+aws logs tail /aws/lambda/${function_name}
 
-3. Alert Issues
-- Verify alert configurations
-- Check webhook endpoints
-- Validate alert conditions
-
-### Logging
-```python
-import logging
-
-logging.getLogger('LambdaMonitor').setLevel(logging.DEBUG)
+# Test IAM permissions
+aws iam simulate-principal-policy \
+    --policy-source-arn ${role_arn} \
+    --action-names lambda:InvokeFunction
 ```
 
-### Health Check
-```python
-# Run health check
-monitor = LambdaMonitor(opensearch_endpoint='your-endpoint')
-health = monitor.check_health()
+3. Metric Collection:
+```bash
+# Verify log subscription
+aws logs describe-subscription-filters \
+    --log-group-name /aws/lambda/${function_name}
 
-if not health['healthy']:
-    print(f"Issues detected: {health['issues']}")
+# Check OpenSearch indices
+curl -X GET "https://${domain_endpoint}/_cat/indices?v"
 ```
+
+### Health Checks
+```bash
+# Check OpenSearch health
+curl -X GET "https://${domain_endpoint}/_cluster/health"
+
+# Verify Lambda configuration
+aws lambda get-function-configuration \
+    --function-name ${function_name}
+
+# Test alerting
+aws lambda invoke \
+    --function-name ${function_name} \
+    --payload '{"test": true}' response.json
+```
+
+### Infrastructure Validation
+```bash
+# Validate Terraform configuration
+terraform validate
+
+# Check for drift
+terraform plan
+
+# Review state
+terraform show
+```
+
+## Best Practices
+
+### Security
+- Use KMS encryption for sensitive data
+- Implement least privilege IAM roles
+- Enable VPC endpoints for AWS services
+- Use security groups for network isolation
+
+### Performance
+- Right-size OpenSearch instances
+- Configure appropriate shard counts
+- Use dedicated master nodes for larger clusters
+- Implement index lifecycle management
+
+### Cost Optimization
+- Use auto-scaling policies
+- Implement log retention policies
+- Monitor resource utilization
+- Use reserved instances for OpenSearch
 
 ## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
-
-## Acknowledgments
-
-- AWS Lambda team for their excellent documentation
-- OpenSearch community for their support
-- Contributors who have helped improve this project
