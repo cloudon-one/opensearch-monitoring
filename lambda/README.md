@@ -1,52 +1,41 @@
 # Lambda Monitoring with OpenSearch
 
-A comprehensive Lambda monitoring solution using OpenSearch, deployed with Terraform.
+A comprehensive Lambda monitoring solution using OpenSearch, deployed with Terraform and configured via JSON.
 
 ## Table of Contents
 - [Features](#features)
 - [Architecture](#architecture)
 - [Prerequisites](#prerequisites)
+- [Configuration](#configuration)
 - [Deployment](#deployment)
-  - [Quick Start](#quick-start)
-  - [Advanced Configuration](#advanced-configuration)
-  - [Multiple Environments](#multiple-environments)
 - [Usage](#usage)
-- [Metrics](#metrics)
-- [Alerts](#alerts)
 - [Maintenance](#maintenance)
 - [Troubleshooting](#troubleshooting)
 
 ## Features
 
 ### Core Functionality
-- Real-time log aggregation and analysis
-- Performance metric tracking
-- Error detection and analysis
-- Cost monitoring
-- Health score calculation
-- Automated alerting
-- VPC-based secure deployment
-- Cross-account monitoring support
-
-### Monitored Metrics
 ```yaml
-Performance:
-  - Function duration
-  - Memory usage
-  - Cold starts
-  - Throttling events
+Monitoring:
+  - Real-time log aggregation
+  - Performance metrics tracking
+  - Error detection and analysis
+  - Cost monitoring
+  - Health scoring
+  - VPC-based secure deployment
 
-Errors:
-  - Error rates
-  - Exception patterns
-  - Stack traces
-  - Timeout occurrences
+Alerting:
+  - Multi-channel notifications (Slack, PagerDuty)
+  - Configurable thresholds
+  - Severity-based routing
+  - Alert throttling
+  - Custom alert templates
 
-Cost:
-  - GB-seconds usage
-  - Invocation costs
-  - Memory optimization
-  - Duration trends
+Storage:
+  - Lifecycle management
+  - Hot-warm-cold architecture
+  - Automatic index rollover
+  - Configurable retention
 ```
 
 ## Architecture
@@ -57,312 +46,311 @@ graph TB
         subgraph Private Subnet
             B[Lambda Monitor]
             C[OpenSearch Domain]
-        end
-        subgraph Public Subnet
-            D[NAT Gateway]
+            D[Setup Lambda]
         end
     end
     
+    subgraph Configuration
+        E[lambda_monitor.json]
+        F[SSM Parameters]
+    end
+    
+    subgraph Notifications
+        G[Slack]
+        H[PagerDuty]
+    end
+    
     A[Lambda Functions] -->|Logs| B
-    B -->|Indexes| C
-    B -->|Internet Access| D
-    C -->|Alerts| E[Notification Systems]
+    E -->|Config| B
+    E -->|Config| D
+    B -->|Metrics| C
+    D -->|Setup| C
+    F -->|Secrets| B
+    B -->|Alerts| G
+    B -->|Alerts| H
 ```
 
 ## Prerequisites
 
 ### Required Tools
 ```bash
-# Terraform version 1.0+
-terraform version
+# Core tools
+terraform >= 1.5.0
+aws-cli >= 2.0.0
+python >= 3.9
 
-# AWS CLI configured
+# AWS credentials configured
 aws configure
-
-# Python 3.9+ (for local development)
-python --version
 ```
 
-### AWS Resources
-- VPC with private subnets
-- NAT Gateway/Instance
-- S3 bucket for Terraform state
-- Route53 Hosted Zone (optional)
-
-### Access Requirements
+### AWS Requirements
 ```hcl
-# Minimum IAM permissions for deployment
+# Required AWS services
+services = [
+  "opensearch",
+  "lambda",
+  "cloudwatch",
+  "ssm",
+  "s3",
+  "vpc"
+]
+
+# VPC requirements
+vpc_components = [
+  "private_subnets",
+  "nat_gateway",
+  "security_groups"
+]
+```
+
+## Configuration
+
+### 1. Configuration File Structure
+```json
 {
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Action": [
-        "lambda:*",
-        "es:*",
-        "ec2:*",
-        "iam:*",
-        "logs:*",
-        "s3:*",
-        "kms:*"
-      ],
-      "Resource": "*"
-    }
-  ]
+  "opensearch": {
+    "index_template": {},
+    "index_lifecycle": {}
+  },
+  "monitoring": {
+    "metrics": {}
+  },
+  "alerts": {
+    "settings": {},
+    "definitions": {}
+  },
+  "notifications": {
+    "templates": {}
+  }
+}
+```
+
+### 2. Environment Variables
+```hcl
+# Required variables
+required_variables = {
+  slack_webhook_url          = "Slack webhook for notifications"
+  pagerduty_api_key          = "PagerDuty API key for alerts"
+  opensearch_master_user     = "OpenSearch admin username"
+  opensearch_master_password = "OpenSearch admin password"
+}
+
+# Optional variables
+optional_variables = {
+  environment = "prod"
+  log_level   = "INFO"
+}
+```
+
+### 3. Security Configuration
+```hcl
+# SSM Parameters
+sensitive_parameters = [
+  "slack_webhook_url",
+  "pagerduty_api_key"
+]
+
+# VPC Access
+vpc_config = {
+  subnet_ids = ["subnet-xxx"]
+  security_group_ids = ["sg-xxx"]
 }
 ```
 
 ## Deployment
 
-### Quick Start
-
-1. Clone and initialize:
+### 1. Initialize Project
 ```bash
+# Clone repository
 git clone git@github.com:cloudon-one/opensearch-monitoring.git
 cd opensearch-monitoring/lambda
+
+# Initialize Terraform
 terraform init
 ```
 
-2. Create terraform.tfvars:
-```hcl
-# Infrastructure Configuration
-aws_region         = "eu-west-1"
-environment        = "prod"
-project_name       = "lambda-monitor"
+### 2. Configure Environment
+```bash
+# Set required variables
+export TF_VAR_slack_webhook_url="https://hooks.slack.com/..."
+export TF_VAR_pagerduty_api_key="your-api-key"
+export TF_VAR_opensearch_master_user="admin"
+export TF_VAR_opensearch_master_password="secure-password"
 
-# VPC Configuration
-vpc_id             = "vpc-xxxxx"
-subnet_ids         = ["subnet-xxxxx", "subnet-yyyyy"]
-
-# OpenSearch Configuration
-opensearch_instance_type  = "t3.small.search"
-opensearch_instance_count = 1
-opensearch_volume_size    = 10
-
-# Security Configuration
-opensearch_master_user     = "admin"
-opensearch_master_password = "your-secure-password"
-
-# Monitoring Configuration
-alert_webhook_url = "https://your-webhook-url"
-log_retention_days = 30
+# Create terraform.tfvars
+cat > terraform.tfvars <<EOF
+environment = "prod"
+vpc_id = "vpc-xxxxx"
+subnet_ids = ["subnet-xxxxx", "subnet-yyyyy"]
+EOF
 ```
 
-3. Package function code:
+### 3. Deploy Infrastructure
 ```bash
-# Create Lambda package
-make package-lambda
+# Validate configuration
+terraform validate
 
-# Or manually
-zip -r function.zip lambda_monitor.py
-zip -r layer.zip python/
-```
-
-4. Deploy:
-```bash
+# Plan deployment
 terraform plan -out=tfplan
+
+# Apply deployment
 terraform apply tfplan
 ```
 
-### Advanced Configuration
-
-#### Custom Domain Configuration
-```hcl
-# terraform.tfvars
-domain_name = "monitor.example.com"
-create_custom_domain = true
-route53_zone_id = "Z123456789ABC"
-```
-
-#### Enhanced Security Configuration
-```hcl
-# terraform.tfvars
-enable_encryption = true
-create_kms_key = true
-enable_vpc_endpoints = true
-enable_waf = true
-```
-
-#### High Availability Setup PROD
-```hcl
-# terraform.tfvars
-opensearch_instance_count = 3
-multi_az = true
-zone_awareness_enabled = true
-```
-
-### Multiple Environments
-
-Using Terraform workspaces:
+### 4. Verify Deployment
 ```bash
-# Create workspaces
-terraform workspace new dev
-terraform workspace new staging
-terraform workspace new prod
+# Check OpenSearch endpoint
+terraform output opensearch_endpoint
 
-# Select workspace
-terraform workspace select dev
-
-# Deploy with environment-specific vars
-terraform apply -var-file="env/dev.tfvars"
+# Verify Lambda function
+aws lambda get-function \
+    --function-name $(terraform output -raw lambda_function_name)
 ```
 
 ## Usage
 
-### Monitoring Examples
-
-1. Get function metrics:
+### 1. Monitor Metrics
 ```python
-# Using boto3
 import boto3
+import requests
+from aws_requests_auth.aws_auth import AWSRequestsAuth
 
-client = boto3.client('opensearch')
-domain_endpoint = client.describe_domain(
-    DomainName=domain_name
-)['DomainStatus']['Endpoints']['vpc']
+# Get OpenSearch endpoint
+opensearch_endpoint = "your-endpoint"
+
+# Query metrics
+response = requests.get(
+    f"https://{opensearch_endpoint}/lambda-logs-*/_search",
+    auth=auth,
+    json={
+        "size": 0,
+        "aggs": {
+            "by_function": {
+                "terms": {
+                    "field": "functionName"
+                }
+            }
+        }
+    }
+)
 ```
 
-2. Configure alerts:
+### 2. Configure Alerts
 ```python
-from lambda_monitor import LambdaMonitor
-
-monitor = LambdaMonitor(opensearch_endpoint=domain_endpoint)
-monitor.create_alert({
+# Update alert configuration
+alert_config = {
     "name": "High Error Rate",
+    "severity": "critical",
     "trigger": {
         "schedule": {"interval": "5m"},
         "condition": {
-            "script": "ctx.results[0].error_rate > 5"
+            "script": {
+                "source": "ctx.results[0].error_rate > 5"
+            }
         }
     }
-})
+}
+
+# Create alert
+response = requests.post(
+    f"https://{opensearch_endpoint}/_plugins/_alerting/monitors",
+    auth=auth,
+    json=alert_config
+)
 ```
-
-## Metrics
-
-### Performance Metrics
-| Metric | Description | Threshold | Alert |
-|--------|-------------|-----------|--------|
-| duration_p95 | 95th percentile duration | 1000ms | High |
-| memory_utilization | Memory usage percentage | 80% | Medium |
-| cold_start_rate | Cold start percentage | 10% | Low |
-
-### Cost Metrics
-| Metric | Description | Threshold | Alert |
-|--------|-------------|-----------|--------|
-| gb_seconds | GB-seconds consumed | Varies | Medium |
-| invocation_cost | Cost per invocation | $0.01 | Low |
-| total_cost | Daily cost | $100 | High |
 
 ## Maintenance
 
-### Regular Tasks
+### 1. Update Configuration
 ```bash
-# Update dependencies
-terraform init -upgrade
+# Edit configuration
+vim lambda_monitor.json
 
-# Plan infrastructure updates
-terraform plan
-
-# Apply security patches
-terraform apply -target=aws_opensearch_domain.monitoring
-
-# Rotate credentials
-terraform taint aws_secretsmanager_secret.opensearch_master
+# Apply changes
 terraform apply
 ```
 
-### Backup and Restore
+### 2. Rotate Credentials
 ```bash
-# Backup OpenSearch indices
-curl -X PUT "https://${domain_endpoint}/_snapshot/backup_repository"
+# Update SSM parameters
+aws ssm put-parameter \
+    --name "/lambda-monitor/prod/slack_webhook_url" \
+    --value "new-webhook-url" \
+    --type SecureString \
+    --overwrite
 
-# Restore from snapshot
-curl -X POST "https://${domain_endpoint}/_snapshot/backup_repository/snapshot_1/_restore"
+# Restart Lambda function
+aws lambda update-function-configuration \
+    --function-name lambda-monitor
+```
+
+### 3. Monitor Health
+```bash
+# Check OpenSearch health
+curl -X GET "https://${OPENSEARCH_ENDPOINT}/_cluster/health"
+
+# View Lambda metrics
+aws cloudwatch get-metric-statistics \
+    --namespace AWS/Lambda \
+    --metric-name Errors \
+    --dimensions Name=FunctionName,Value=lambda-monitor \
+    --start-time $(date -u -v-1H +%FT%TZ) \
+    --end-time $(date -u +%FT%TZ) \
+    --period 300 \
+    --statistics Sum
 ```
 
 ## Troubleshooting
 
 ### Common Issues
 
-1. OpenSearch Connection:
+1. OpenSearch Connection
 ```bash
-# Test VPC connectivity
-aws ec2 describe-network-interfaces \
-    --filters Name=vpc-id,Values=${vpc_id}
+# Check VPC endpoints
+aws ec2 describe-vpc-endpoints \
+    --filters Name=vpc-id,Values=${VPC_ID}
 
-# Check security groups
+# Verify security groups
 aws ec2 describe-security-groups \
-    --group-ids ${security_group_id}
+    --group-ids ${SECURITY_GROUP_ID}
 ```
 
-2. Lambda Deployment:
+2. Lambda Configuration
 ```bash
-# Check Lambda logs
-aws logs tail /aws/lambda/${function_name}
+# Check environment variables
+aws lambda get-function-configuration \
+    --function-name lambda-monitor
 
-# Test IAM permissions
-aws iam simulate-principal-policy \
-    --policy-source-arn ${role_arn} \
-    --action-names lambda:InvokeFunction
+# View logs
+aws logs tail /aws/lambda/lambda-monitor
 ```
 
-3. Metric Collection:
+3. Alert Delivery
 ```bash
-# Verify log subscription
-aws logs describe-subscription-filters \
-    --log-group-name /aws/lambda/${function_name}
+# Verify webhook configuration
+aws ssm get-parameter \
+    --name "/lambda-monitor/prod/slack_webhook_url" \
+    --with-decryption
 
-# Check OpenSearch indices
-curl -X GET "https://${domain_endpoint}/_cat/indices?v"
+# Test alert delivery
+aws lambda invoke \
+    --function-name lambda-monitor \
+    --payload '{"test": true}' response.json
 ```
 
 ### Health Checks
 ```bash
-# Check OpenSearch health
-curl -X GET "https://${domain_endpoint}/_cluster/health"
+# Infrastructure health
+terraform plan # Check for drift
 
-# Verify Lambda configuration
-aws lambda get-function-configuration \
-    --function-name ${function_name}
+# OpenSearch indices
+curl -X GET "https://${OPENSEARCH_ENDPOINT}/_cat/indices?v"
 
-# Test alerting
+# Lambda execution
 aws lambda invoke \
-    --function-name ${function_name} \
-    --payload '{"test": true}' response.json
+    --function-name lambda-monitor \
+    --payload '{"healthCheck": true}' response.json
 ```
-
-### Infrastructure Validation
-```bash
-# Validate Terraform configuration
-terraform validate
-
-# Check for drift
-terraform plan
-
-# Review state
-terraform show
-```
-
-## Best Practices
-
-### Security
-- Use KMS encryption for sensitive data
-- Implement least privilege IAM roles
-- Enable VPC endpoints for AWS services
-- Use security groups for network isolation
-
-### Performance
-- Right-size OpenSearch instances
-- Configure appropriate shard counts
-- Use dedicated master nodes for larger clusters
-- Implement index lifecycle management
-
-### Cost Optimization
-- Use auto-scaling policies
-- Implement log retention policies
-- Monitor resource utilization
-- Use reserved instances for OpenSearch
 
 ## License
 

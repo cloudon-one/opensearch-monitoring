@@ -1,33 +1,6 @@
-terraform {
-  required_providers {
-    aws = {
-      source  = "hashicorp/aws"
-      version = "~> 5.0"
-    }
-  }
-  
-  backend "s3" {
-    # Configure your state backend
-  }
-}
-
-provider "aws" {
-  region = var.aws_region
-
-  default_tags {
-    tags = {
-      Environment = var.environment
-      Project     = "lambda-monitoring"
-      Terraform   = "true"
-    }
-  }
-}
-
-# Random string for unique naming
-resource "random_string" "suffix" {
-  length  = 8
-  special = false
-  upper   = false
+# Load and validate metrics configuration from file
+locals {
+  metrics_config = jsondecode(file("${path.module}/lambda_monitor.json"))
 }
 
 # OpenSearch Domain
@@ -39,7 +12,6 @@ resource "aws_opensearch_domain" "monitoring" {
     instance_type            = var.opensearch_instance_type
     instance_count          = var.opensearch_instance_count
     zone_awareness_enabled  = var.opensearch_instance_count > 1
-    dedicated_master_enabled = false
   }
 
   ebs_options {
@@ -48,19 +20,13 @@ resource "aws_opensearch_domain" "monitoring" {
     volume_type = "gp3"
   }
 
-  encrypt_at_rest {
-    enabled = true
+  # Apply index template from configuration
+  advanced_options = {
+    "indices.query.bool.max_clause_count" = "8192",
+    "override_main_response_version" = "true"
   }
 
-  node_to_node_encryption {
-    enabled = true
-  }
-
-  domain_endpoint_options {
-    enforce_https       = true
-    tls_security_policy = "Policy-Min-TLS-1-2-2019-07"
-  }
-
+  # Apply lifecycle policy from configuration
   advanced_security_options {
     enabled                        = true
     internal_user_database_enabled = true
@@ -74,18 +40,6 @@ resource "aws_opensearch_domain" "monitoring" {
     subnet_ids         = var.subnet_ids
     security_group_ids = [aws_security_group.opensearch.id]
   }
-
-  depends_on = [aws_iam_service_linked_role.opensearch]
-}
-
-# Lambda Layer
-resource "aws_lambda_layer_version" "monitoring_deps" {
-  filename         = var.lambda_layer_zip
-  layer_name       = "${var.project_name}-dependencies-${var.environment}"
-  description      = "Dependencies for Lambda monitoring function"
-  compatible_runtimes = ["python3.9"]
-
-  compatible_architectures = ["x86_64", "arm64"]
 }
 
 # Lambda Function
@@ -106,6 +60,9 @@ resource "aws_lambda_function" "monitoring" {
       ALERT_WEBHOOK_URL  = var.alert_webhook_url
       ENVIRONMENT       = var.environment
       LOG_LEVEL        = var.log_level
+      METRICS_CONFIG   = jsonencode(local.metrics_config)
+      SLACK_WEBHOOK_URL = var.slack_webhook_url
+      PAGERDUTY_API_KEY = var.pagerduty_api_key
     }
   }
 
@@ -115,58 +72,56 @@ resource "aws_lambda_function" "monitoring" {
   }
 }
 
-# Security Groups
-resource "aws_security_group" "lambda" {
-  name        = "${var.project_name}-lambda-${var.environment}"
-  description = "Security group for Lambda monitoring function"
-  vpc_id      = var.vpc_id
+# S3 Bucket for configurations
+resource "aws_s3_bucket" "lambda_artifacts" {
+  bucket = "${var.project_name}-artifacts-${var.environment}-${random_string.suffix.result}"
+}
 
-  egress {
-    from_port   = 443
-    to_port     = 443
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+# Enable versioning
+resource "aws_s3_bucket_versioning" "lambda_artifacts" {
+  bucket = aws_s3_bucket.lambda_artifacts.id
+  versioning_configuration {
+    status = "Enabled"
   }
 }
 
-resource "aws_security_group" "opensearch" {
-  name        = "${var.project_name}-opensearch-${var.environment}"
-  description = "Security group for OpenSearch domain"
-  vpc_id      = var.vpc_id
-
-  ingress {
-    from_port       = 443
-    to_port         = 443
-    protocol        = "tcp"
-    security_groups = [aws_security_group.lambda.id]
-  }
+# Upload configuration
+resource "aws_s3_object" "metrics_config" {
+  bucket = aws_s3_bucket.lambda_artifacts.id
+  key    = "config/lambda_monitor.json"
+  content = jsonencode(local.metrics_config)
+  content_type = "application/json"
 }
 
-# IAM Roles and Policies
-resource "aws_iam_role" "lambda_role" {
-  name = "${var.project_name}-lambda-role-${var.environment}"
-
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Action = "sts:AssumeRole"
-        Effect = "Allow"
-        Principal = {
-          Service = "lambda.amazonaws.com"
-        }
-      }
-    ]
-  })
+# SSM Parameters for sensitive values
+resource "aws_ssm_parameter" "slack_webhook" {
+  name  = "/${var.project_name}/${var.environment}/slack_webhook_url"
+  type  = "SecureString"
+  value = var.slack_webhook_url
 }
 
-resource "aws_iam_role_policy_attachment" "lambda_vpc_access" {
-  role       = aws_iam_role.lambda_role.name
-  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
+resource "aws_ssm_parameter" "pagerduty_key" {
+  name  = "/${var.project_name}/${var.environment}/pagerduty_api_key"
+  type  = "SecureString"
+  value = var.pagerduty_api_key
 }
 
-resource "aws_iam_role_policy" "lambda_monitoring" {
-  name = "${var.project_name}-lambda-policy-${var.environment}"
+# Add necessary variables
+variable "slack_webhook_url" {
+  description = "Slack webhook URL for notifications"
+  type        = string
+  sensitive   = true
+}
+
+variable "pagerduty_api_key" {
+  description = "PagerDuty API key for alerts"
+  type        = string
+  sensitive   = true
+}
+
+# Lambda permissions for SSM
+resource "aws_iam_role_policy" "lambda_ssm" {
+  name = "${var.project_name}-lambda-ssm-${var.environment}"
   role = aws_iam_role.lambda_role.id
 
   policy = jsonencode({
@@ -175,108 +130,38 @@ resource "aws_iam_role_policy" "lambda_monitoring" {
       {
         Effect = "Allow"
         Action = [
-          "es:ESHttp*"
+          "ssm:GetParameter",
+          "ssm:GetParameters"
         ]
-        Resource = "${aws_opensearch_domain.monitoring.arn}/*"
-      },
-      {
-        Effect = "Allow"
-        Action = [
-          "logs:CreateLogGroup",
-          "logs:CreateLogStream",
-          "logs:PutLogEvents",
-          "logs:DescribeLogGroups",
-          "logs:DescribeLogStreams"
+        Resource = [
+          aws_ssm_parameter.slack_webhook.arn,
+          aws_ssm_parameter.pagerduty_key.arn
         ]
-        Resource = "*"
-      },
-      {
-        Effect = "Allow"
-        Action = [
-          "lambda:ListFunctions",
-          "lambda:GetFunction"
-        ]
-        Resource = "*"
       }
     ]
   })
 }
 
-# CloudWatch Log Group
-resource "aws_cloudwatch_log_group" "monitoring" {
-  name              = "/aws/lambda/${aws_lambda_function.monitoring.function_name}"
-  retention_in_days = var.log_retention_days
-}
-
-# Service Linked Role for OpenSearch
-resource "aws_iam_service_linked_role" "opensearch" {
-  aws_service_name = "opensearchservice.amazonaws.com"
-}
-
-# Subscription Function for Setting Up Log Subscriptions
-resource "aws_lambda_function" "subscription_setup" {
-  filename      = data.archive_file.subscription_setup.output_path
-  function_name = "${var.project_name}-subscription-setup-${var.environment}"
-  role         = aws_iam_role.subscription_setup_role.arn
-  handler      = "index.handler"
-  runtime      = "python3.9"
-  timeout      = 300
+# Add OpenSearch template creation Lambda
+resource "aws_lambda_function" "opensearch_setup" {
+  filename         = var.setup_function_zip
+  function_name    = "${var.project_name}-setup-${var.environment}"
+  role            = aws_iam_role.setup_role.arn
+  handler         = "setup.handler"
+  runtime         = "python3.9"
+  timeout         = 300
 
   environment {
     variables = {
-      MONITORING_FUNCTION_ARN = aws_lambda_function.monitoring.arn
+      OPENSEARCH_ENDPOINT = aws_opensearch_domain.monitoring.endpoint
+      METRICS_CONFIG     = jsonencode(local.metrics_config)
     }
   }
 }
 
-# Archive file for subscription setup function
-data "archive_file" "subscription_setup" {
-  type        = "zip"
-  output_path = "${path.module}/subscription_setup.zip"
-
-  source {
-    content  = <<EOF
-import boto3
-import os
-import logging
-
-logger = logging.getLogger()
-logger.setLevel(logging.INFO)
-
-def handler(event, context):
-    try:
-        logs = boto3.client('logs')
-        lambda_client = boto3.client('lambda')
-        
-        # Get all Lambda functions
-        functions = lambda_client.list_functions()['Functions']
-        
-        for function in functions:
-            log_group_name = f"/aws/lambda/{function['FunctionName']}"
-            try:
-                # Create subscription filter
-                logs.put_subscription_filter(
-                    logGroupName=log_group_name,
-                    filterName='lambda-monitoring',
-                    filterPattern='',
-                    destinationArn=os.environ['MONITORING_FUNCTION_ARN']
-                )
-                logger.info(f"Created subscription for {log_group_name}")
-            except Exception as e:
-                logger.error(f"Error creating subscription for {log_group_name}: {str(e)}")
-                
-        return {'statusCode': 200}
-    except Exception as e:
-        logger.error(f"Error: {str(e)}")
-        return {'statusCode': 500}
-EOF
-    filename = "index.py"
-  }
-}
-
-# IAM Role for Subscription Setup Function
-resource "aws_iam_role" "subscription_setup_role" {
-  name = "${var.project_name}-subscription-setup-role-${var.environment}"
+# Setup function role
+resource "aws_iam_role" "setup_role" {
+  name = "${var.project_name}-setup-role-${var.environment}"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -292,36 +177,19 @@ resource "aws_iam_role" "subscription_setup_role" {
   })
 }
 
-resource "aws_iam_role_policy" "subscription_setup" {
-  name = "${var.project_name}-subscription-setup-policy-${var.environment}"
-  role = aws_iam_role.subscription_setup_role.id
+# Invoke setup function after OpenSearch domain creation
+resource "null_resource" "setup_opensearch" {
+  triggers = {
+    opensearch_endpoint = aws_opensearch_domain.monitoring.endpoint
+    config_hash        = sha256(jsonencode(local.metrics_config))
+  }
 
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Action = [
-          "logs:PutSubscriptionFilter",
-          "logs:DeleteSubscriptionFilter",
-          "lambda:ListFunctions"
-        ]
-        Resource = "*"
-      },
-      {
-        Effect = "Allow"
-        Action = [
-          "logs:CreateLogGroup",
-          "logs:CreateLogStream",
-          "logs:PutLogEvents"
-        ]
-        Resource = [
-          "arn:aws:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:log-group:/aws/lambda/${var.project_name}-subscription-setup-${var.environment}:*"
-        ]
-      }
-    ]
-  })
+  provisioner "local-exec" {
+    command = "aws lambda invoke --function-name ${aws_lambda_function.opensearch_setup.function_name} --payload '{}' response.json"
+  }
+
+  depends_on = [
+    aws_lambda_function.opensearch_setup,
+    aws_opensearch_domain.monitoring
+  ]
 }
-
-# Current AWS Account ID
-data "aws_caller_identity" "current" {}
