@@ -101,19 +101,19 @@ pip install -r requirements.txt -t ./
 # Package the function
 zip -r function.zip ./*
 
-# Deploy the function
+# Deploy the function to kenbi-dev account
 aws lambda create-function \
     --function-name lambda-log-shipper \
     --runtime python3.9 \
     --handler lambda_monitor.lambda_handler \
     --zip-file fileb://function.zip \
-    --role arn:aws:iam::<account-id>:role/lambda-log-shipper
+    --role arn:aws:iam::689127934821:role/lambda-log-shipper
 ```
 
 3. Configure Log Subscription:
 ```bash
 aws logs put-subscription-filter \
-    --log-group-name "/aws/lambda/<function-name>" \
+    --log-group-name "/aws/lambda/monitoring-function" \
     --filter-name "ship-to-opensearch" \
     --filter-pattern "" \
     --destination-arn "<log-shipper-arn>"
@@ -155,7 +155,7 @@ monitor.process_cloudwatch_event(event)
 
 # Get metrics
 metrics = monitor.get_metrics(
-    function_name='my-function',
+    function_name='monitoring-function',
     start_time='2024-01-01T00:00:00Z'
 )
 ```

@@ -1,0 +1,9 @@
+aws_region = "eu-west-1"
+environment = "dev"
+vpc_id = "vpc-059c6b66f47d85f0e"
+subnet_ids = ["subnet-018cc508b104e628a", "subnet-00927783aa2d22192", "subnet-021a29b81ad05febf", "subnet-0e5408ab70119fe12"]
+opensearch_master_user = "admin"
+opensearch_master_password = "your-secure-password"
+lambda_layer_zip = "/function/layer.zip"
+lambda_function_zip = "/function/function.zip"
+alert_webhook_url = "https://your-webhook-url"
