@@ -1,13 +1,13 @@
 variable "aws_region" {
   description = "AWS region"
   type        = string
-  default     = "eu-west-1"
+  default     = ""
 }
 
 variable "environment" {
   description = "Environment name"
   type        = string
-  default     = "prod"
+  default     = ""
 }
 
 variable "project_name" {

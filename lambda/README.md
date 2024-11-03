@@ -118,15 +118,15 @@ python --version
 
 1. Clone and initialize:
 ```bash
-git clone https://github.com/your-org/lambda-monitor
-cd lambda-monitor
+git clone git@github.com:cloudon-one/opensearch-monitoring.git
+cd opensearch-monitoring/lambda
 terraform init
 ```
 
 2. Create terraform.tfvars:
 ```hcl
 # Infrastructure Configuration
-aws_region         = "us-west-2"
+aws_region         = "eu-west-1"
 environment        = "prod"
 project_name       = "lambda-monitor"
 
@@ -183,7 +183,7 @@ enable_vpc_endpoints = true
 enable_waf = true
 ```
 
-#### High Availability Setup
+#### High Availability Setup PROD
 ```hcl
 # terraform.tfvars
 opensearch_instance_count = 3
