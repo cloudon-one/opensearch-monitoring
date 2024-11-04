@@ -27,13 +27,13 @@
             "warning": [
                 {
                     "type": "sns",
-                    "topic_arn": "${sns_topic_arn}" 
+                    "topic_arn": "arn:aws:sns:eu-west-1:689127934821:lambda-monitoring-topic" 
                 }
             ],
             "critical": [
                 {
                     "type": "sns",
-                    "topic_arn": "${sns_topic_arn}"
+                    "topic_arn": "arn:aws:sns:eu-west-1:689127934821:lambda-monitoring-topic"
                 }
             ]
         }

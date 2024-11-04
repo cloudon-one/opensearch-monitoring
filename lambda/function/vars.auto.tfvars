@@ -1,6 +1,6 @@
 function_name = "monitoring-function"
-memory_size = 256
-timeout = 300
+memory_size   = 256
+timeout       = 300
 environment_variables = {
   LOG_LEVEL = "INFO"
 }

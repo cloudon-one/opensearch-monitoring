@@ -174,6 +174,7 @@ aws logs get-log-events \
   --log-stream-name "$(aws logs describe-log-streams \
     --log-group-name "/aws/lambda/multi-account-monitor" \
     --order-by LastEventTime \
+    --region=eu-west-1 \
     --descending \
     --limit 1 \
     --query 'logStreams[0].logStreamName' \
