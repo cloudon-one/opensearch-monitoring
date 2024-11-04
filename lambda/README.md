@@ -138,7 +138,7 @@ schedule_expression = "rate(5 minutes)"
 ### 3. Update Configuration
 
 1. Edit `lambda_monitor.json`:
-   - Update SNS topic ARNs for alert routing "topic_arn": "${sns_topic_arn}"
+   - Update SNS topic ARNs for alert routing **"${sns_topic_arn}"**
    - Adjust monitoring thresholds if needed
    - Configure storage lifecycle settings
 
