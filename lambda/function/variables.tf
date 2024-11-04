@@ -78,3 +78,42 @@ variable "tags" {
   type        = map(string)
   default     = {}
 }
+
+# Add to variables.tf
+
+variable "create_kms_key" {
+  description = "Whether to create a KMS key for encryption"
+  type        = bool
+  default     = false
+}
+
+variable "kms_key_deletion_window" {
+  description = "Duration in days after which the KMS key is deleted after destruction"
+  type        = number
+  default     = 7
+}
+
+# Add to variables.tf
+
+variable "aws_region" {
+  description = "AWS region where resources will be created"
+  type        = string
+  default     = "eu-west-1"
+}
+
+variable "aws_account_id" {
+  description = "AWS account ID where resources will be created"
+  type        = string
+}
+
+variable "assume_role_arn" {
+  description = "ARN of the IAM role to assume (optional)"
+  type        = string
+  default     = null
+}
+
+variable "environment" {
+  description = "Environment name (e.g., dev, prod, staging)"
+  type        = string
+  default     = ""
+}

@@ -1,4 +1,36 @@
-# functions.tf
+terraform {
+  required_version = ">= 1.0.0"
+
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.0"
+    }
+  }
+}
+
+provider "aws" {
+  region = var.aws_region
+
+  # Optional but recommended: specify allowed AWS account IDs to prevent accidents
+  allowed_account_ids = [var.aws_account_id]
+
+  # Optional: assume role configuration if needed
+  dynamic "assume_role" {
+    for_each = var.assume_role_arn != null ? [1] : []
+    content {
+      role_arn = var.assume_role_arn
+    }
+  }
+
+  default_tags {
+    tags = {
+      Environment = var.environment
+      Project     = "Lambda-Monitoring"
+      ManagedBy   = "Terraform"
+    }
+  }
+}
 # Lambda function configuration
 resource "aws_lambda_function" "monitoring" {
   filename         = "lambda_function.zip"
@@ -26,17 +58,6 @@ resource "aws_lambda_function" "monitoring" {
       METRICS_BUCKET    = aws_s3_bucket.metrics.id
       SLACK_WEBHOOK_URL = var.slack_webhook_url
       PAGERDUTY_API_KEY = var.pagerduty_api_key
-    }
-  }
-
-  # Enable function URL if specified
-  dynamic "function_url_config" {
-    for_each = var.create_function_url ? [1] : []
-    content {
-      authorization_type = "AWS_IAM"
-      cors {
-        allow_origins = ["*"]
-      }
     }
   }
 
@@ -148,4 +169,123 @@ resource "aws_lambda_permission" "cloudwatch" {
   function_name = aws_lambda_function.monitoring.function_name
   principal     = "events.amazonaws.com"
   source_arn    = aws_cloudwatch_event_rule.schedule.arn
+}
+
+# IAM role for Lambda function
+resource "aws_iam_role" "lambda_role" {
+  name = "${var.function_name}-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = "sts:AssumeRole"
+        Effect = "Allow"
+        Principal = {
+          Service = "lambda.amazonaws.com"
+        }
+      }
+    ]
+  })
+
+  tags = var.tags
+}
+
+# Lambda basic execution policy
+resource "aws_iam_role_policy_attachment" "lambda_basic" {
+  role       = aws_iam_role.lambda_role.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+}
+
+# VPC access policy (if VPC config is provided)
+resource "aws_iam_role_policy_attachment" "lambda_vpc" {
+  count      = var.vpc_subnet_ids != null ? 1 : 0
+  role       = aws_iam_role.lambda_role.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
+}
+
+# Custom policy for Lambda function
+resource "aws_iam_role_policy" "lambda_policy" {
+  name = "${var.function_name}-policy"
+  role = aws_iam_role.lambda_role.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "sts:AssumeRole"
+        ]
+        Resource = var.monitoring_accounts[*].role_arn
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "cloudwatch:PutMetricData",
+          "cloudwatch:GetMetricStatistics",
+          "cloudwatch:ListMetrics"
+        ]
+        Resource = "*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "logs:CreateLogGroup",
+          "logs:CreateLogStream",
+          "logs:PutLogEvents",
+          "logs:DescribeLogStreams",
+          "logs:StartQuery",
+          "logs:GetQueryResults"
+        ]
+        Resource = [
+          "arn:aws:logs:*:*:log-group:/aws/lambda/*",
+          "arn:aws:logs:*:*:log-group:/aws/lambda/*:log-stream:*"
+        ]
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:PutObject",
+          "s3:GetObject",
+          "s3:ListBucket"
+        ]
+        Resource = [
+          aws_s3_bucket.metrics.arn,
+          "${aws_s3_bucket.metrics.arn}/*"
+        ]
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "lambda:ListFunctions",
+          "lambda:GetFunction",
+          "lambda:GetFunctionConfiguration"
+        ]
+        Resource = "*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "ce:GetCostAndUsage"
+        ]
+        Resource = "*"
+      }
+    ]
+  })
+}
+
+# Optional KMS key for encryption
+resource "aws_kms_key" "lambda" {
+  count                   = var.create_kms_key ? 1 : 0
+  description             = "KMS key for Lambda function ${var.function_name}"
+  deletion_window_in_days = 7
+  enable_key_rotation     = true
+  tags                    = var.tags
+}
+
+resource "aws_kms_alias" "lambda" {
+  count         = var.create_kms_key ? 1 : 0
+  name          = "alias/${var.function_name}"
+  target_key_id = aws_kms_key.lambda[0].key_id
 }
