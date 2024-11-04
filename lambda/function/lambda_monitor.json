@@ -1,269 +1,53 @@
 {
-    "opensearch": {
-      "index_template": {
-        "index_patterns": ["lambda-logs-*"],
-        "template": {
-          "settings": {
-            "number_of_shards": 1,
-            "number_of_replicas": 1,
-            "index.lifecycle.name": "lambda_logs_policy",
-            "index.lifecycle.rollover_alias": "lambda-logs"
-          },
-          "mappings": {
-            "properties": {
-              "timestamp": { "type": "date" },
-              "message": { "type": "text" },
-              "logGroup": { "type": "keyword" },
-              "logStream": { "type": "keyword" },
-              "functionName": { "type": "keyword" },
-              "coldStart": { "type": "boolean" },
-              "duration": { "type": "float" },
-              "memoryUsed": { "type": "integer" },
-              "maxMemory": { "type": "integer" },
-              "errorType": { "type": "keyword" },
-              "errorMessage": { "type": "text" }
+    "alerting": {
+        "thresholds": {
+            "memory_used": {
+                "warning": 512,
+                "critical": 768
+            },
+            "execution_duration": {
+                "warning": 5000,
+                "critical": 8000
+            },
+            "error_count": {
+                "warning": 1,
+                "critical": 5
+            },
+            "cost_estimate": {
+                "warning": 0.5,
+                "critical": 1.0
+            },
+            "health_score": {
+                "warning": 80,
+                "critical": 60
             }
-          }
-        }
-      },
-      "index_lifecycle": {
-        "policy": {
-          "phases": {
-            "hot": {
-              "min_age": "0ms",
-              "actions": {
-                "rollover": {
-                  "max_age": "1d",
-                  "max_size": "50gb"
-                }
-              }
-            },
-            "warm": {
-              "min_age": "7d",
-              "actions": {
-                "forcemerge": {
-                  "max_num_segments": 1
-                }
-              }
-            },
-            "cold": {
-              "min_age": "30d",
-              "actions": {
-                "freeze": {}
-              }
-            },
-            "delete": {
-              "min_age": "90d",
-              "actions": {
-                "delete": {}
-              }
-            }
-          }
-        }
-      }
-    },
-    "monitoring": {
-      "metrics": {
-        "base_aggregations": {
-          "by_function": {
-            "terms": {
-              "field": "functionName",
-              "size": 100
-            },
-            "aggs": {
-              "error_rate": {
-                "filters": {
-                  "filters": {
-                    "errors": {
-                      "match": {
-                        "message": "Error"
-                      }
-                    },
-                    "total": {
-                      "match_all": {}
-                    }
-                  }
-                },
-                "aggs": {
-                  "error_percentage": {
-                    "bucket_script": {
-                      "buckets_path": {
-                        "errors": "errors._count",
-                        "total": "total._count"
-                      },
-                      "script": "params.errors / params.total * 100"
-                    }
-                  }
-                }
-              },
-              "duration_percentiles": {
-                "percentiles": {
-                  "field": "duration",
-                  "percents": [50, 75, 90, 95, 99]
-                }
-              },
-              "memory_stats": {
-                "stats": {
-                  "field": "memoryUsed"
-                }
-              },
-              "cold_starts": {
-                "filter": {
-                  "term": {
-                    "coldStart": true
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "alerts": {
-      "settings": {
-        "notification_throttle": {
-          "critical": "5m",
-          "warning": "15m",
-          "info": "1h"
         },
-        "severity_thresholds": {
-          "critical": {
-            "error_rate": 10,
-            "duration_p95": 2000,
-            "memory_utilization": 90,
-            "health_score": 50
-          },
-          "warning": {
-            "error_rate": 5,
-            "duration_p95": 1000,
-            "memory_utilization": 80,
-            "health_score": 70
-          },
-          "info": {
-            "error_rate": 2,
-            "duration_p95": 500,
-            "memory_utilization": 70,
-            "health_score": 85
-          }
-        },
-        "alert_routing": {
-          "critical": {
-            "channels": ["pagerduty", "slack-critical"],
-            "notify_on_resolve": true
-          },
-          "warning": {
-            "channels": ["slack-alerts"],
-            "notify_on_resolve": false
-          },
-          "info": {
-            "channels": ["slack-monitoring"],
-            "notify_on_resolve": false
-          }
-        }
-      },
-      "definitions": {
-        "performance_alert": {
-          "trigger": {
-            "schedule": {
-              "interval": "5m"
-            },
-            "condition": {
-              "script": {
-                "source": "def p95_duration = ctx.results[0].aggregations.by_function.buckets.findAll { bucket -> bucket.duration_percentiles.values['95.0'] > params.threshold_ms }; if (p95_duration.size() > 0) { ctx.message = 'Functions exceeding P95 duration threshold: ' + p95_duration.collect { it.key }.join(', '); return true; } return false;",
-                "params": {
-                  "threshold_ms": 1000
+        "throttle_window": 300,
+        "routing": {
+            "warning": [
+                {
+                    "type": "sns",
+                    "topic_arn": "${sns_topic_arn}"
                 }
-              }
-            }
-          }
-        },
-        "error_rate_alert": {
-          "trigger": {
-            "schedule": {
-              "interval": "5m"
-            },
-            "condition": {
-              "script": {
-                "source": "def error_spikes = ctx.results[0].aggregations.by_function.buckets.findAll { bucket -> def error_rate = (bucket.error_rate.errors._count / bucket.error_rate.total._count) * 100; return error_rate > params.threshold_percent; }; if (error_spikes.size() > 0) { ctx.message = 'Functions experiencing error rate spikes: ' + error_spikes.collect { it.key }.join(', '); return true; } return false;",
-                "params": {
-                  "threshold_percent": 5
+            ],
+            "critical": [
+                {
+                    "type": "sns",
+                    "topic_arn": "${sns_topic_arn}"
                 }
-              }
-            }
-          }
-        },
-        "cost_alert": {
-        },
-        "health_score_alert": {
-          "trigger": {
-            "schedule": {
-              "interval": "15m"
-            },
-            "condition": {
-              "script": {
-                "source": "def unhealthy_functions = ctx.results[0].aggregations.by_function.buckets.findAll { bucket -> bucket.health_score.value < params.health_threshold }; if (unhealthy_functions.size() > 0) { ctx.message = 'Functions with degraded health scores: ' + unhealthy_functions.collect { it.key }.join(', '); return true; } return false;",
-                "params": {
-                  "health_threshold": 70
-                }
-              }
-            }
-          }
-        },
-        "composite_alert": {
-          "trigger": {
-            "schedule": {
-              "interval": "5m"
-            }
-          }
-        }
-      }
-    },
-    "notifications": {
-      "templates": {
-        "slack": {
-          "critical": {
-            "username": "Lambda Monitor",
-            "icon_emoji": ":red_circle:",
-            "blocks": [
-              {
-                "type": "header",
-                "text": {
-                  "type": "plain_text",
-                  "text": "🚨 Critical Alert: {{alert.name}}"
-                }
-              },
-              {
-                "type": "section",
-                "text": {
-                  "type": "mrkdwn",
-                  "text": "{{ctx.message}}"
-                }
-              },
-              {
-                "type": "section",
-                "fields": [
-                  {
-                    "type": "mrkdwn",
-                    "text": "*Severity:* Critical"
-                  },
-                  {
-                    "type": "mrkdwn",
-                    "text": "*Time:* {{ctx.trigger.triggered_time}}"
-                  }
-                ]
-              }
             ]
-          }
-        },
-        "pagerduty": {
-          "critical": {
-            "incident_key": "{{ctx.monitor}}_{{ctx.trigger}}",
-            "description": "{{ctx.message}}",
-            "client": "Lambda Monitor",
-            "client_url": "{{ctx.opensearch_dashboards_url}}",
-            "severity": "critical"
-          }
         }
-      }
+    },
+    "storage": {
+        "retention_days": 30,
+        "lifecycle": {
+            "hot_storage_days": 7,
+            "warm_storage_days": 30,
+            "cold_storage_days": 90
+        },
+        "index_rollover": {
+            "max_age": "7d",
+            "max_size": "50gb"
+        }
     }
-  }
+}

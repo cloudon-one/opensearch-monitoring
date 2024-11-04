@@ -1,14 +1,9 @@
-output "opensearch_endpoint" {
-  description = "OpenSearch domain endpoint"
-  value       = aws_opensearch_domain.monitoring.endpoint
-}
-
-output "monitoring_function_arn" {
-  description = "Monitoring Lambda function ARN"
+output "lambda_function_arn" {
+  description = "ARN of the Lambda monitoring function"
   value       = aws_lambda_function.monitoring.arn
 }
 
-output "opensearch_dashboard_url" {
-  description = "OpenSearch dashboard URL"
-  value       = "https://${aws_opensearch_domain.monitoring.endpoint}/_dashboards/"
+output "lambda_role_arn" {
+  description = "ARN of the Lambda IAM role"
+  value       = aws_iam_role.lambda
 }
