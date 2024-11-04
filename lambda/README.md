@@ -1,303 +1,285 @@
-# Cross-Account Lambda Monitoring Solution
+# Multi-Account Lambda Monitoring
 
-A comprehensive monitoring solution for AWS Lambda functions across multiple AWS accounts. This solution provides centralized monitoring, metrics collection, and visualization through Grafana dashboards.
-
-## Table of Contents
-- [Architecture](#architecture)
-- [Features](#features)
-- [Prerequisites](#prerequisites)
-- [Deployment Guide](#deployment-guide)
-  - [1. Prepare Target Accounts](#1-prepare-target-accounts)
-  - [2. Prepare Deployment Files](#2-prepare-deployment-files)
-  - [3. Deploy Infrastructure](#3-deploy-infrastructure)
-  - [4. Configure Grafana](#4-configure-grafana)
-  - [5. Verify Deployment](#5-verify-deployment)
-  - [6. Troubleshooting](#6-troubleshooting)
-  - [7. Maintenance](#7-maintenance)
-- [Security Considerations](#security-considerations)
-- [Metrics Reference](#metrics-reference)
-- [Contributing](#contributing)
-- [Support](#support)
-- [References](#references)
+This project implements a Lambda-based monitoring solution that can collect metrics and generate alerts across multiple AWS accounts.
 
 ## Architecture
 
-```mermaid
-flowchart TB
-    subgraph "Monitoring Account"
-        EventBridge[["EventBridge\nScheduler"]]
-        MonitoringLambda["Monitoring\nLambda Function"]
-        CWMetrics[["CloudWatch\nCustom Metrics"]]
-        Grafana["Grafana\nDashboard"]
-        
-        EventBridge -->|Triggers every\n5 minutes| MonitoringLambda
-        MonitoringLambda -->|Publishes metrics| CWMetrics
-        CWMetrics -->|Visualizes data| Grafana
-    end
-    
-    subgraph "Target Account 1"
-        IAMRole1["IAM Role"]
-        Lambda1_1["Lambda\nFunction 1"]
-        Lambda1_2["Lambda\nFunction 2"]
-        CW1["CloudWatch\nMetrics"]
-        
-        Lambda1_1 --> CW1
-        Lambda1_2 --> CW1
-        IAMRole1 -->|Allows access to| CW1
-    end
-    
-    subgraph "Target Account 2"
-        IAMRole2["IAM Role"]
-        Lambda2_1["Lambda\nFunction 1"]
-        Lambda2_2["Lambda\nFunction 2"]
-        CW2["CloudWatch\nMetrics"]
-        
-        Lambda2_1 --> CW2
-        Lambda2_2 --> CW2
-        IAMRole2 -->|Allows access to| CW2
-    end
-    
-    subgraph "Target Account N"
-        IAMRoleN["IAM Role"]
-        LambdaN_1["Lambda\nFunction 1"]
-        LambdaN_2["Lambda\nFunction 2"]
-        CWN["CloudWatch\nMetrics"]
-        
-        LambdaN_1 --> CWN
-        LambdaN_2 --> CWN
-        IAMRoleN -->|Allows access to| CWN
-    end
-    
-    MonitoringLambda -->|Assumes role| IAMRole1
-    MonitoringLambda -->|Assumes role| IAMRole2
-    MonitoringLambda -->|Assumes role| IAMRoleN
-    
-    IAMRole1 -->|Collects metrics| CW1
-    IAMRole2 -->|Collects metrics| CW2
-    IAMRoleN -->|Collects metrics| CWN
-```
-
-## Features
-
-- Cross-account Lambda function monitoring
-- Automated metrics collection every 5 minutes
-- Centralized CloudWatch metrics storage
-- Pre-configured Grafana dashboards
-- Terraform-based deployment
-- Scalable to multiple AWS accounts
-
-### Metrics Collected
-- Invocation counts
-- Error rates
-- Duration metrics
-- Throttling events
-- Concurrent executions
-- Iterator age (for stream-based functions)
+The solution consists of:
+- A Lambda function that collects metrics across accounts
+- IAM roles for cross-account access
+- CloudWatch metrics and logs integration
+- SNS-based alerting system
 
 ## Prerequisites
 
-- AWS CLI installed and configured with administrator access to the monitoring account
-- Terraform (version 1.0.0 or higher)
-- Python 3.9 or higher
-- Git (optional, for version control)
+1. AWS CLI installed and configured
+2. Terraform >= 1.0.0
+3. Access to all target AWS accounts
+4. Permissions to create IAM roles and Lambda functions
 
-## Deployment Guide
+## Deployment Steps
 
-### 1. Prepare Target Accounts
+### 1. Create IAM Roles in Target Accounts
 
-#### 1.1. Create IAM Role in Target Accounts
-1. Log into each target AWS account
-2. Create a new IAM role with the following trust relationship:
+For each target account, create an IAM role with the following trust relationship:
+
 ```json
 {
-    "Version": "2012-10-17",
-    "Statement": [
-        {
-            "Effect": "Allow",
-            "Principal": {
-                "AWS": "arn:aws:iam::<MONITORING_ACCOUNT_ID>:role/lambda_monitoring_role"
-            },
-            "Action": "sts:AssumeRole"
-        }
-    ]
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "AWS": "arn:aws:iam::<MONITORING_ACCOUNT_ID>:root"
+      },
+      "Action": "sts:AssumeRole"
+    }
+  ]
 }
 ```
 
-3. Attach the following IAM policy to the role:
+Required permissions for the role:
 ```json
 {
-    "Version": "2012-10-17",
-    "Statement": [
-        {
-            "Effect": "Allow",
-            "Action": [
-                "lambda:ListFunctions",
-                "cloudwatch:GetMetricStatistics",
-                "cloudwatch:ListMetrics"
-            ],
-            "Resource": "*"
-        }
-    ]
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "cloudwatch:GetMetricData",
+        "cloudwatch:GetMetricStatistics",
+        "cloudwatch:ListMetrics",
+        "logs:FilterLogEvents",
+        "logs:GetLogEvents",
+        "logs:DescribeLogGroups"
+      ],
+      "Resource": "*"
+    }
+  ]
 }
 ```
 
-4. Note down the ARN of each created role
+### 2. Configure Variables
 
-### 2. Prepare Deployment Files
+Create a `terraform.tfvars` file:
 
-#### 2.1. Clone and Setup Project
-```bash
-# Clone repository
-git clone https://github.com/yourusername/lambda-monitoring.git
-cd lambda-monitoring
-
-# Create deployment package
-zip lambda_function.zip lambda_function.py
-```
-
-#### 2.2. Configure Terraform Variables
-Create `terraform.tfvars` with your account configurations:
 ```hcl
-monitoring_accounts = [
-  {
-    account_id = "111111111111"
-    region     = "us-east-1"
-    role_arn   = "arn:aws:iam::111111111111:role/LambdaMonitoringRole"
-  },
-  {
-    account_id = "222222222222"
-    region     = "us-east-1"
-    role_arn   = "arn:aws:iam::222222222222:role/LambdaMonitoringRole"
-  }
+function_name = "multi-account-monitor"
+memory_size = 256
+timeout = 300
+environment_variables = {
+  LOG_LEVEL = "INFO"
+}
+target_account_roles = [
+  "arn:aws:iam::111111111111:role/monitoring-role",
+  "arn:aws:iam::222222222222:role/monitoring-role"
 ]
-
 schedule_expression = "rate(5 minutes)"
 ```
 
-### 3. Deploy Infrastructure
+### 3. Update Configuration
+
+1. Edit `lambda_monitor.json`:
+   - Update SNS topic ARNs for alert routing
+   - Adjust monitoring thresholds if needed
+   - Configure storage lifecycle settings
+
+2. Verify Lambda function code in `lambda_function.py`
+
+### 4. Deploy the Solution
 
 ```bash
 # Initialize Terraform
 terraform init
 
-# Verify the deployment plan
+# Plan the deployment
 terraform plan
 
-# Apply the configuration
+# Apply the changes
 terraform apply
 ```
 
-### 4. Configure Grafana
-
-#### 4.1. Set Up CloudWatch Data Source
-1. Log into your Grafana instance
-2. Go to Configuration → Data Sources
-3. Add new CloudWatch data source
-4. Configure:
-   - Name: CloudWatch
-   - Auth Provider: Access & secret key
-   - Access Key ID: Enter your AWS access key
-   - Secret Access Key: Enter your AWS secret key
-   - Default Region: Select your primary monitoring region
-5. Click "Save & Test"
-
-#### 4.2. Import Dashboard
-1. Go to Dashboards → Import
-2. Copy the provided Grafana dashboard JSON from `grafana/dashboard.json`
-3. Click "Load" and then "Import"
-
 ### 5. Verify Deployment
 
-#### 5.1. Check Lambda Function
-1. Go to AWS Lambda console
-2. Verify `lambda_cross_account_monitoring` function
-3. Check CloudWatch Logs
-4. Verify metrics in CloudWatch under `CustomLambdaMonitoring` namespace
+1. Check Lambda function in AWS Console
+2. Verify CloudWatch Log Group creation
+3. Test SNS topic subscriptions
 
-#### 5.2. Verify Grafana Dashboard
-1. Wait 5-10 minutes for initial data collection
-2. Open the imported dashboard
-3. Verify metrics display for all accounts
+## Debugging Guide
 
-### 6. Troubleshooting
+### 1. CloudWatch Logs
 
-#### Common Issues and Solutions
+Monitor Lambda execution:
+```bash
+aws logs get-log-events \
+  --log-group-name "/aws/lambda/multi-account-monitor" \
+  --log-stream-name "$(aws logs describe-log-streams \
+    --log-group-name "/aws/lambda/multi-account-monitor" \
+    --order-by LastEventTime \
+    --descending \
+    --limit 1 \
+    --query 'logStreams[0].logStreamName' \
+    --output text)"
+```
 
-**No Data in Grafana**
-- Verify CloudWatch data source configuration
-- Check Lambda function execution logs
-- Ensure IAM roles have correct permissions
-- Verify target account role ARNs
+### 2. Common Issues and Solutions
 
-**Lambda Function Errors**
-- Check CloudWatch Logs for error messages
-- Verify environment variables
-- Ensure Lambda execution role permissions
-- Check network connectivity if in VPC
+#### Cross-Account Access Issues
 
-**Cross-Account Access Issues**
-- Verify trust relationships
-- Check role ARNs
-- Ensure correct policies
-- Verify account IDs
+1. Check IAM role trust relationships:
+```bash
+aws iam get-role --role-name monitoring-role
+```
 
-### 7. Maintenance
+2. Verify role permissions:
+```bash
+aws iam get-role-policy --role-name monitoring-role --policy-name permissions
+```
 
-#### 7.1. Adding New Accounts
-1. Create IAM role in new account (follow section 1.1)
-2. Add account configuration to `terraform.tfvars`
-3. Run `terraform apply`
+3. Test role assumption:
+```bash
+aws sts assume-role \
+  --role-arn "arn:aws:iam::TARGET_ACCOUNT_ID:role/monitoring-role" \
+  --role-session-name "TestSession"
+```
 
-#### 7.2. Updating Configuration
-1. Modify `terraform.tfvars` or `main.tf`
-2. Run `terraform plan`
-3. Run `terraform apply`
+#### Metric Collection Issues
 
-#### 7.3. Monitoring and Alerts
-1. Set up CloudWatch Alarms
-2. Configure Grafana alerting
-3. Review metrics regularly
+1. Check CloudWatch metrics existence:
+```bash
+aws cloudwatch list-metrics \
+  --namespace "AWS/Lambda" \
+  --metric-name "Duration"
+```
 
-## Security Considerations
+2. Test metric retrieval:
+```bash
+aws cloudwatch get-metric-statistics \
+  --namespace "AWS/Lambda" \
+  --metric-name "Duration" \
+  --dimensions Name=FunctionName,Value=multi-account-monitor \
+  --start-time "$(date -u -v-1H '+%Y-%m-%dT%H:%M:%SZ')" \
+  --end-time "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" \
+  --period 300 \
+  --statistics Average
+```
 
-- Rotate AWS access keys regularly
-- Review IAM roles and policies periodically
-- Monitor for unauthorized access
-- Keep components updated
-- Follow least privilege principle
-- Implement proper Grafana access controls
-- Regular security audits
-- Encrypt sensitive data
+#### Alert Issues
 
-## Metrics Reference
+1. Verify SNS topic:
+```bash
+aws sns list-subscriptions-by-topic \
+  --topic-arn "YOUR_SNS_TOPIC_ARN"
+```
 
-| Metric Name | Description | Unit | Aggregation |
-|------------|-------------|------|-------------|
-| Invocations | Number of function invocations | Count | Sum |
-| Errors | Failed invocations | Count | Sum |
-| Duration | Execution time | Milliseconds | Average |
-| Throttles | Throttled invocations | Count | Sum |
-| ConcurrentExecutions | Concurrent executions | Count | Average |
-| IteratorAge | Stream record age | Milliseconds | Average |
+2. Test SNS publishing:
+```bash
+aws sns publish \
+  --topic-arn "YOUR_SNS_TOPIC_ARN" \
+  --message "Test alert message"
+```
 
-## Contributing
+### 3. Monitoring the Monitor
 
-1. Fork the repository
-2. Create a feature branch
-3. Commit your changes
-4. Push to the branch
-5. Create a Pull Request
+1. Set up CloudWatch Alarms for the monitoring function:
+```bash
+aws cloudwatch put-metric-alarm \
+  --alarm-name "MonitoringFunctionErrors" \
+  --alarm-description "Alert on monitoring function errors" \
+  --metric-name "Errors" \
+  --namespace "AWS/Lambda" \
+  --dimensions Name=FunctionName,Value=multi-account-monitor \
+  --period 300 \
+  --evaluation-periods 1 \
+  --threshold 1 \
+  --comparison-operator GreaterThanThreshold \
+  --statistic Sum
+```
+
+2. Monitor function duration:
+```bash
+aws cloudwatch put-metric-alarm \
+  --alarm-name "MonitoringFunctionDuration" \
+  --alarm-description "Alert on high function duration" \
+  --metric-name "Duration" \
+  --namespace "AWS/Lambda" \
+  --dimensions Name=FunctionName,Value=multi-account-monitor \
+  --period 300 \
+  --evaluation-periods 1 \
+  --threshold 250000 \
+  --comparison-operator GreaterThanThreshold \
+  --statistic Average
+```
+
+## Testing
+
+### 1. Manual Invocation
+
+Test the function with a sample event:
+```bash
+aws lambda invoke \
+  --function-name multi-account-monitor \
+  --payload '{}' \
+  response.json
+```
+
+### 2. Verify Metrics
+
+Check collected metrics:
+```bash
+aws cloudwatch get-metric-data \
+  --metric-data-queries '[{
+    "Id": "m1",
+    "MetricStat": {
+      "Metric": {
+        "Namespace": "CustomMetrics",
+        "MetricName": "HealthScore",
+        "Dimensions": [{"Name": "FunctionName", "Value": "multi-account-monitor"}]
+      },
+      "Period": 300,
+      "Stat": "Average"
+    },
+    "ReturnData": true
+  }]' \
+  --start-time "$(date -u -v-1H '+%Y-%m-%dT%H:%M:%SZ')" \
+  --end-time "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+```
+
+### 3. End-to-End Testing
+
+1. Deploy to a test environment
+2. Configure test accounts with sample data
+3. Verify metric collection across accounts
+4. Test alert generation and delivery
+5. Validate storage lifecycle management
+
+## Maintenance
+
+### 1. Regular Tasks
+
+- Review and update monitoring thresholds
+- Verify IAM role permissions
+- Check CloudWatch Log retention
+- Monitor Lambda function versions
+
+### 2. Updating the Function
+
+1. Make code changes
+2. Update configuration if needed
+3. Deploy using Terraform
+4. Verify changes in CloudWatch Logs
+
+### 3. Backup and Recovery
+
+- Keep configuration in version control
+- Document all custom thresholds
+- Maintain list of monitored accounts
+- Store alert routing settings
 
 ## Support
 
-For support:
-1. Check this documentation
-2. Open an issue
-3. Contact maintainers
-
-## References
-
-- [AWS Lambda Documentation](https://docs.aws.amazon.com/lambda/)
-- [Terraform Documentation](https://www.terraform.io/docs)
-- [Grafana Documentation](https://grafana.com/docs/)
-- [CloudWatch Documentation](https://docs.aws.amazon.com/cloudwatch/)
+For issues and support:
+1. Check CloudWatch Logs
+2. Review IAM permissions
+3. Verify network connectivity
+4. Check SNS topic configuration
