@@ -27,7 +27,7 @@
             "warning": [
                 {
                     "type": "sns",
-                    "topic_arn": "${sns_topic_arn}"
+                    "topic_arn": "${sns_topic_arn}" 
                 }
             ],
             "critical": [

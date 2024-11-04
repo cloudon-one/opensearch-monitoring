@@ -78,6 +78,8 @@ The solution consists of:
 
 For each target account, create an IAM role with the following trust relationship:
 
+### kenbi-dev
+
 ```json
 {
   "Version": "2012-10-17",
@@ -85,7 +87,7 @@ For each target account, create an IAM role with the following trust relationshi
     {
       "Effect": "Allow",
       "Principal": {
-        "AWS": "arn:aws:iam::<MONITORING_ACCOUNT_ID>:root"
+        "AWS": "arn:aws:iam::689127934821:root"
       },
       "Action": "sts:AssumeRole"
     }
@@ -116,18 +118,19 @@ Required permissions for the role:
 
 ### 2. Configure Variables
 
-Create a `terraform.tfvars` file:
+Use `vars.auto.tfvars` file:
 
 ```hcl
-function_name = "multi-account-monitor"
+ffunction_name = "monitoring-function"
 memory_size = 256
 timeout = 300
 environment_variables = {
   LOG_LEVEL = "INFO"
 }
 target_account_roles = [
-  "arn:aws:iam::111111111111:role/monitoring-role",
-  "arn:aws:iam::222222222222:role/monitoring-role"
+  "arn:aws:iam::689127934821:role/monitoring-role", #DEV
+  "arn:aws:iam::794242591007:role/monitoring-role", #PRE-PROD
+  "arn:aws:iam::484646055271:role/monitoring-role"  #PROD
 ]
 schedule_expression = "rate(5 minutes)"
 ```
@@ -135,7 +138,7 @@ schedule_expression = "rate(5 minutes)"
 ### 3. Update Configuration
 
 1. Edit `lambda_monitor.json`:
-   - Update SNS topic ARNs for alert routing
+   - Update SNS topic ARNs for alert routing "topic_arn": "${sns_topic_arn}"
    - Adjust monitoring thresholds if needed
    - Configure storage lifecycle settings
 
