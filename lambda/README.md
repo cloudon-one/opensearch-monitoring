@@ -4,6 +4,61 @@ This project implements a Lambda-based monitoring solution that can collect metr
 
 ## Architecture
 
+```mermaid
+graph TB
+    subgraph "Monitoring Account"
+        L[Lambda Function]
+        CW[CloudWatch]
+        SNS[SNS Topic]
+        IAM[IAM Role]
+    end
+
+    subgraph "Target Account 1"
+        R1[IAM Role]
+        M1[Metrics]
+        LOG1[CloudWatch Logs]
+    end
+
+    subgraph "Target Account 2"
+        R2[IAM Role]
+        M2[Metrics]
+        LOG2[CloudWatch Logs]
+    end
+
+    subgraph "Target Account N"
+        R3[IAM Role]
+        M3[Metrics]
+        LOG3[CloudWatch Logs]
+    end
+
+    subgraph "Alert Destinations"
+        EMAIL[Email]
+        SLACK[Slack]
+        PD[PagerDuty]
+    end
+
+    L -->|Assume Role| R1
+    L -->|Assume Role| R2
+    L -->|Assume Role| R3
+    
+    R1 -->|Collect| M1
+    R1 -->|Read| LOG1
+    R2 -->|Collect| M2
+    R2 -->|Read| LOG2
+    R3 -->|Collect| M3
+    R3 -->|Read| LOG3
+    
+    L -->|Store Metrics| CW
+    L -->|Send Alerts| SNS
+    
+    SNS -->|Notify| EMAIL
+    SNS -->|Notify| SLACK
+    SNS -->|Notify| PD
+
+    classDef aws fill:#FF9900,stroke:#232F3E,stroke-width:2px,color:white;
+    class L,CW,SNS,IAM,R1,R2,R3,M1,M2,M3,LOG1,LOG2,LOG3 aws;
+```
+
 The solution consists of:
 - A Lambda function that collects metrics across accounts
 - IAM roles for cross-account access
