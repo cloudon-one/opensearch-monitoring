@@ -1,4 +1,4 @@
-# variables.tf
+
 variable "function_name" {
   description = "Name of the Lambda function"
   type        = string
@@ -55,12 +55,6 @@ variable "pagerduty_api_key" {
   default     = ""
 }
 
-variable "vpc_subnet_ids" {
-  description = "List of VPC subnet IDs for Lambda function"
-  type        = list(string)
-  default     = null
-}
-
 variable "vpc_security_group_ids" {
   description = "List of VPC security group IDs for Lambda function"
   type        = list(string)
@@ -79,8 +73,6 @@ variable "tags" {
   default     = {}
 }
 
-# Add to variables.tf
-
 variable "create_kms_key" {
   description = "Whether to create a KMS key for encryption"
   type        = bool
@@ -92,8 +84,6 @@ variable "kms_key_deletion_window" {
   type        = number
   default     = 7
 }
-
-# Add to variables.tf
 
 variable "aws_region" {
   description = "AWS region where resources will be created"
@@ -116,4 +106,44 @@ variable "environment" {
   description = "Environment name (e.g., dev, prod, staging)"
   type        = string
   default     = ""
+}
+
+
+variable "vpc_id" {
+  description = "VPC ID where OpenSearch will be deployed"
+  type        = string
+}
+
+variable "vpc_subnet_ids" {
+  description = "List of VPC subnet IDs. Only the first subnet will be used for single-AZ deployment"
+  type        = list(string)
+}
+
+variable "opensearch_instance_type" {
+  description = "OpenSearch instance type"
+  type        = string
+  default     = "t3.small.search"
+}
+
+variable "opensearch_instance_count" {
+  description = "Number of OpenSearch instances (use 1 for dev/test)"
+  type        = number
+  default     = 1
+}
+
+variable "opensearch_volume_size" {
+  description = "Size of OpenSearch EBS volume in GB"
+  type        = number
+  default     = 10
+}
+
+variable "opensearch_master_user" {
+  description = "OpenSearch master user name"
+  type        = string
+}
+
+variable "opensearch_master_password" {
+  description = "OpenSearch master user password"
+  type        = string
+  sensitive   = true
 }

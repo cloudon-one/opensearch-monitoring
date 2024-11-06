@@ -1,10 +1,14 @@
 terraform {
-  required_version = ">= 1.0.0"
+  required_version = ">= 1.5.0"
 
   required_providers {
     aws = {
       source  = "hashicorp/aws"
       version = "~> 5.0"
+    }
+    null = {
+      source  = "hashicorp/null"
+      version = "~> 3.0"
     }
   }
 }
@@ -33,7 +37,7 @@ provider "aws" {
 }
 # Lambda function configuration
 resource "aws_lambda_function" "monitoring" {
-  filename         = "lambda_function.zip"
+  filename         = "${path.module}/lambda_function.zip"
   function_name    = var.function_name
   role            = aws_iam_role.lambda_role.arn
   handler         = "lambda_function.lambda_handler"
@@ -41,7 +45,9 @@ resource "aws_lambda_function" "monitoring" {
   timeout         = 300
   memory_size     = 256
   
-  # Add VPC configuration if specified
+  depends_on = [null_resource.lambda_package]
+  
+  # VPC configuration
   dynamic "vpc_config" {
     for_each = var.vpc_subnet_ids != null && var.vpc_security_group_ids != null ? [1] : []
     content {
@@ -102,6 +108,7 @@ resource "aws_s3_bucket_versioning" "metrics" {
 }
 
 # S3 lifecycle rules
+# Update the aws_s3_bucket_lifecycle_configuration resource
 resource "aws_s3_bucket_lifecycle_configuration" "metrics" {
   bucket = aws_s3_bucket.metrics.id
 
@@ -114,7 +121,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "metrics" {
     }
 
     transition {
-      days          = 7
+      days          = 30  # Minimum required days for STANDARD_IA
       storage_class = "STANDARD_IA"
     }
   }
@@ -128,7 +135,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "metrics" {
     }
 
     transition {
-      days          = 30
+      days          = 90  # Increased for better lifecycle management
       storage_class = "GLACIER"
     }
   }
@@ -267,6 +274,18 @@ resource "aws_iam_role_policy" "lambda_policy" {
       {
         Effect = "Allow"
         Action = [
+          "es:ESHttp*",
+          "es:DescribeElasticsearchDomain",
+          "es:ListDomainNames"
+        ]
+        Resource = [
+          aws_opensearch_domain.monitoring.arn,
+          "${aws_opensearch_domain.monitoring.arn}/*"
+      ]
+      },
+      {
+        Effect = "Allow"
+        Action = [
           "ce:GetCostAndUsage"
         ]
         Resource = "*"
@@ -288,4 +307,22 @@ resource "aws_kms_alias" "lambda" {
   count         = var.create_kms_key ? 1 : 0
   name          = "alias/${var.function_name}"
   target_key_id = aws_kms_key.lambda[0].key_id
+}
+
+resource "null_resource" "lambda_package" {
+  triggers = {
+    lambda_file = filemd5("${path.module}/lambda_function.py")
+    requirements = filemd5("${path.module}/requirements.txt")
+  }
+
+  provisioner "local-exec" {
+    command = <<EOT
+      mkdir -p ${path.module}/package
+      pip install -r ${path.module}/requirements.txt -t ${path.module}/package/
+      cd ${path.module}/package
+      zip -r9 ../lambda_function.zip .
+      cd ..
+      zip -g lambda_function.zip lambda_function.py
+    EOT
+  }
 }

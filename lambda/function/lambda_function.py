@@ -325,3 +325,158 @@ def lambda_handler(event, context):
                 'error': str(e)
             })
         }
+
+# Add to your Lambda function
+
+from opensearchpy import OpenSearch, RequestsHttpConnection
+from requests_aws4auth import AWS4Auth
+import boto3
+
+class OpenSearchManager:
+    def __init__(self, domain_endpoint, region):
+        self.domain_endpoint = domain_endpoint
+        self.region = region
+        self.client = self._create_client()
+        
+    def _create_client(self):
+        """Create OpenSearch client with AWS authentication"""
+        credentials = boto3.Session().get_credentials()
+        awsauth = AWS4Auth(
+            credentials.access_key,
+            credentials.secret_key,
+            self.region,
+            'es',
+            session_token=credentials.token
+        )
+        
+        return OpenSearch(
+            hosts=[{'host': self.domain_endpoint, 'port': 443}],
+            http_auth=awsauth,
+            use_ssl=True,
+            verify_certs=True,
+            connection_class=RequestsHttpConnection,
+            timeout=30
+        )
+    
+    def store_metrics(self, metrics, index_prefix='metrics'):
+        """Store metrics in OpenSearch"""
+        timestamp = datetime.datetime.utcnow()
+        index_name = f"{index_prefix}-{timestamp.strftime('%Y.%m.%d')}"
+        
+        try:
+            # Create index if it doesn't exist
+            if not self.client.indices.exists(index_name):
+                self.client.indices.create(
+                    index_name,
+                    body={
+                        'mappings': {
+                            'properties': {
+                                'timestamp': {'type': 'date'},
+                                'account_id': {'type': 'keyword'},
+                                'region': {'type': 'keyword'},
+                                'function_name': {'type': 'keyword'},
+                                'metrics': {'type': 'object'},
+                                'health_score': {'type': 'float'},
+                                'tags': {'type': 'keyword'}
+                            }
+                        },
+                        'settings': {
+                            'index': {
+                                'number_of_shards': 3,
+                                'number_of_replicas': 1
+                            }
+                        }
+                    }
+                )
+            
+            # Store metrics
+            for metric in metrics:
+                metric['timestamp'] = timestamp.isoformat()
+                self.client.index(
+                    index=index_name,
+                    body=metric,
+                    id=f"{metric['account_id']}-{metric['function_name']}-{timestamp.timestamp()}"
+                )
+                
+        except Exception as e:
+            logger.error(f"Error storing metrics in OpenSearch: {str(e)}")
+            raise
+
+    def query_metrics(self, query, index_pattern='metrics-*'):
+        """Query metrics from OpenSearch"""
+        try:
+            response = self.client.search(
+                index=index_pattern,
+                body=query
+            )
+            return response['hits']['hits']
+        except Exception as e:
+            logger.error(f"Error querying OpenSearch: {str(e)}")
+            return []
+
+# Update the Lambda handler to use OpenSearch
+    def lambda_handler(event, context):
+        try:
+            # Initialize components
+            metrics_aggregator = MetricsAggregator()
+            storage_manager = StorageManager()
+            alert_manager = AlertManager()
+            health_scorer = HealthScorer()
+            
+            # Initialize OpenSearch manager
+            opensearch_manager = OpenSearchManager(
+                os.environ['OPENSEARCH_ENDPOINT'],
+                os.environ['AWS_REGION']
+            )
+            
+            # Process accounts and collect metrics
+            accounts_config = json.loads(os.environ['ACCOUNTS_CONFIG'])
+            all_metrics = []
+            
+            with ThreadPoolExecutor(max_workers=10) as executor:
+                futures = [
+                    executor.submit(
+                        process_account,
+                        account,
+                        metrics_aggregator,
+                        alert_manager,
+                        health_scorer
+                    )
+                    for account in accounts_config
+                ]
+                
+                for future in futures:
+                    all_metrics.extend(future.result())
+        
+            # Store metrics in both S3 and OpenSearch
+            storage_manager.store_metrics(all_metrics, 'hot')
+            opensearch_manager.store_metrics(all_metrics)
+        
+            # Example query to check for critical issues
+            critical_issues_query = {
+                "query": {
+                    "bool": {
+                        "must": [
+                            {"range": {"health_score": {"lt": 0.6}}},
+                            {"range": {"timestamp": {"gte": "now-1h"}}}
+                        ]
+                    }
+                }
+            }
+        
+            critical_issues = opensearch_manager.query_metrics(critical_issues_query)
+            if critical_issues:
+                alert_manager.send_alerts(critical_issues)
+        
+            return {
+                'statusCode': 200,
+                'body': json.dumps({
+                    'message': 'Metrics collection and storage completed',
+                    'metrics_collected': len(all_metrics),
+                    'critical_issues': len(critical_issues)
+                })
+            }
+        
+        except Exception as e:
+            logger.error(f"Error in Lambda handler: {str(e)}")
+            raise

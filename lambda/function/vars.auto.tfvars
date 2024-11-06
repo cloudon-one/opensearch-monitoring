@@ -12,6 +12,7 @@ target_account_roles = [
 schedule_expression = "rate(5 minutes)"
 create_function_url = true
 
+vpc_id = "vpc-059c6b66f47d85f0e"
 vpc_subnet_ids = [
   "subnet-018cc508b104e628a",
   "subnet-00927783aa2d22192",
@@ -28,19 +29,15 @@ monitoring_accounts = [
     account_id = "689127934821",
     region     = "eu-west-1",
     role_arn   = "arn:aws:iam::689127934821:role/monitoring-role"
-  },
-  {
-    account_id = "794242591007",
-    region     = "eu-west-1",
-    role_arn   = "arn:aws:iam::794242591007:role/monitoring-role"
-  },
-  {
-    account_id = "484646055271",
-    region     = "eu-west-1",
-    role_arn   = "arn:aws:iam::484646055271:role/monitoring-role"
   }
 ]
 
 aws_region      = "eu-west-1"
 aws_account_id  = "689127934821"  # dev
 environment     = "dev"
+
+opensearch_master_user = "dev_admin"
+opensearch_master_password = "Secured@Admin!123"
+opensearch_instance_type = "t3.small.search"
+opensearch_instance_count = 1
+opensearch_volume_size = 10
