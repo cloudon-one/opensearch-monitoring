@@ -1,8 +1,11 @@
-# opensearch.tf
 
 locals {
   # Get the first subnet ID for single-AZ deployment
   opensearch_subnet_id = var.vpc_subnet_ids[0]
+  dashboard_file = "${path.module}/dashboards/lambda_monitoring.json"
+  
+  # Base64 encode credentials for basic auth
+  auth_header = base64encode("${var.opensearch_master_user}:${var.opensearch_master_password}")
 }
 
 # OpenSearch Domain
@@ -94,4 +97,60 @@ output "opensearch_endpoint" {
 output "opensearch_dashboard_endpoint" {
   description = "OpenSearch dashboard endpoint"
   value       = aws_opensearch_domain.monitoring.dashboard_endpoint
+}
+
+
+# Wait for OpenSearch domain to be ready
+resource "time_sleep" "wait_for_opensearch" {
+  depends_on = [aws_opensearch_domain.monitoring]
+  
+  create_duration = "60s"
+}
+
+# Import dashboard configuration
+resource "null_resource" "import_dashboard" {
+  depends_on = [time_sleep.wait_for_opensearch]
+
+  triggers = {
+    dashboard_content = filemd5(local.dashboard_file)
+  }
+
+  provisioner "local-exec" {
+    command = <<EOT
+      # Create index pattern
+      curl -X PUT \
+        "https://${aws_opensearch_domain.monitoring.endpoint}/_dashboards/api/saved_objects/index-pattern/metrics-*" \
+        -H "Authorization: Basic ${local.auth_header}" \
+        -H "Content-Type: application/json" \
+        -H "osd-xsrf: true" \
+        -d '{"attributes":{"title":"metrics-*","timeFieldName":"timestamp"}}'
+
+      # Import dashboard
+      curl -X POST \
+        "https://${aws_opensearch_domain.monitoring.endpoint}/_dashboards/api/saved_objects/_import?overwrite=true" \
+        -H "Authorization: Basic ${local.auth_header}" \
+        -H "osd-xsrf: true" \
+        -H "Content-Type: multipart/form-data" \
+        -F "file=@${local.dashboard_file}"
+    EOT
+  }
+}
+
+resource "null_resource" "import_dashboards" {
+  depends_on = [time_sleep.wait_for_opensearch]
+
+  triggers = {
+    dashboard_content = filemd5(local.dashboard_file)
+    script_content = filemd5("${path.module}/scripts/manage_dashboard.py")
+  }
+
+  provisioner "local-exec" {
+    command = <<EOT
+      python3 ${path.module}/scripts/manage_dashboard.py \
+        --endpoint ${aws_opensearch_domain.monitoring.endpoint} \
+        --username ${var.opensearch_master_user} \
+        --password ${var.opensearch_master_password} \
+        --dashboard-file ${local.dashboard_file}
+    EOT
+  }
 }
