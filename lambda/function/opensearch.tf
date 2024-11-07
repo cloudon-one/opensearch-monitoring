@@ -11,7 +11,7 @@ locals {
 # OpenSearch Domain
 resource "aws_opensearch_domain" "monitoring" {
   domain_name    = "${var.function_name}-logs"
-  engine_version = "OpenSearch_2.5"
+  engine_version = "OpenSearch_2.15"
 
   cluster_config {
     instance_type          = var.opensearch_instance_type
