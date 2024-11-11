@@ -7,7 +7,7 @@ opensearch-py==2.4.2
 requests-aws4auth==1.2.3
 
 # HTTP and Authentication
-requests==2.31.0
+requests==2.32.2
 urllib3<2.0.0  # Required for compatibility with boto3
 
 # Time handling
