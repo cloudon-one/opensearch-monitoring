@@ -332,5 +332,3 @@ Common issues and solutions:
 4. Organization Controls
    - Use AWS Organizations SCPs for additional control
    - Implement compliance policies
-
-[Rest of the README remains the same]
