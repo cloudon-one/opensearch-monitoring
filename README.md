@@ -9,6 +9,12 @@ This solution provides real-time monitoring and analytics for AWS Lambda functio
 ## Architecture
 
 ```mermaid
+flowchart TB
+subgraph EventBridge[Amazon EventBridge]
+direction TB
+event[Schedule Trigger]
+end
+
 subgraph MonitoringAccount[Monitoring Account]
     direction TB
     lambda[Monitoring Lambda]
