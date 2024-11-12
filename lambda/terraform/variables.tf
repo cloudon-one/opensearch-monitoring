@@ -53,3 +53,15 @@ variable "tags" {
     Project     = "lambda-monitoring"
   }
 }
+
+variable "cross_account_assume_role_enabled" {
+  description = "Enable cross-account role assumption"
+  type        = bool
+  default     = true
+}
+
+variable "organization_id_check_enabled" {
+  description = "Enable AWS Organization ID verification in trust policies"
+  type        = bool
+  default     = true
+}

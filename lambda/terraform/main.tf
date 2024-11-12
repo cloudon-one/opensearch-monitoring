@@ -180,3 +180,46 @@ resource "null_resource" "setup_dashboards" {
     EOF
   }
 }
+
+# CloudWatch Log Group for cross-account access monitoring
+resource "aws_cloudwatch_log_group" "cross_account_access" {
+  name              = "/aws/lambda/${var.monitoring_role_name}/cross-account-access"
+  retention_in_days = 14
+
+  tags = {
+    Environment = "production"
+    Service     = "lambda-monitoring"
+  }
+}
+
+# SNS Topic for cross-account access notifications
+resource "aws_sns_topic" "cross_account_access" {
+  name = "lambda-monitoring-cross-account-access"
+}
+
+# CloudWatch Metric Filter for failed cross-account access
+resource "aws_cloudwatch_log_metric_filter" "failed_cross_account_access" {
+  name           = "failed-cross-account-access"
+  pattern        = "?Error ?error ?exception ?Exception"
+  log_group_name = aws_cloudwatch_log_group.cross_account_access.name
+
+  metric_transformation {
+    name      = "FailedCrossAccountAccess"
+    namespace = "LambdaMonitoring"
+    value     = "1"
+  }
+}
+
+# CloudWatch Alarm for failed cross-account access
+resource "aws_cloudwatch_metric_alarm" "failed_cross_account_access" {
+  alarm_name          = "failed-cross-account-access"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = "1"
+  metric_name         = "FailedCrossAccountAccess"
+  namespace           = "LambdaMonitoring"
+  period             = "300"
+  statistic          = "Sum"
+  threshold          = "0"
+  alarm_description  = "This metric monitors failed cross-account access attempts"
+  alarm_actions      = [aws_sns_topic.cross_account_access.arn]
+}
