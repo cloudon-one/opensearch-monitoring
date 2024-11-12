@@ -1,6 +1,6 @@
 resource "aws_opensearch_domain" "monitoring" {
   domain_name    = var.opensearch_domain_name
-  engine_version = "OpenSearch_2.5"
+  engine_version = "OpenSearch_2.15"
 
   cluster_config {
     instance_type          = "t3.small.search"
@@ -92,9 +92,9 @@ resource "aws_lambda_function" "monitoring" {
   function_name    = "lambda-fleet-monitoring"
   role            = aws_iam_role.lambda_monitoring.arn
   handler         = "lambda_function.lambda_handler"
-  runtime         = "python3.9"
+  runtime         = "python3.11"
   timeout         = 300
-  memory_size     = 256
+  memory_size     = 512
 
   environment {
     variables = {
@@ -132,7 +132,7 @@ resource "aws_lambda_function" "dashboard_setup" {
   function_name    = "lambda-dashboard-setup"
   role            = aws_iam_role.lambda_monitoring.arn
   handler         = "dashboard_setup.create_opensearch_dashboards"
-  runtime         = "python3.9"
+  runtime         = "python3.11"
   timeout         = 300
   memory_size     = 256
 
