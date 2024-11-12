@@ -121,7 +121,7 @@ Required permissions for the role:
 Use `vars.auto.tfvars` file:
 
 ```hcl
-ffunction_name = "monitoring-function"
+function_name = "monitoring-function"
 memory_size = 256
 timeout = 300
 environment_variables = {
