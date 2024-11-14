@@ -160,3 +160,4 @@ cython_debug/
 *.stack.tm.hcl
 .terraform/
 *.terraform.tfstate
+.terraform.lock.hcl

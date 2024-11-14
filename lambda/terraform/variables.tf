@@ -39,6 +39,12 @@ variable "opensearch_volume_size" {
   default     = 10
 }
 
+variable "opensearch_master_user" {
+  description = "Master user name for OpenSearch"
+  type        = string
+  default     = "admin"
+}
+
 variable "opensearch_master_user_password" {
   description = "Password for OpenSearch master user"
   type        = string
@@ -48,7 +54,7 @@ variable "opensearch_master_user_password" {
 variable "tags" {
   description = "Tags to apply to all resources"
   type        = map(string)
-  default     = {
+  default = {
     Environment = "dev"
     Project     = "lambda-monitoring"
   }
@@ -65,3 +71,22 @@ variable "organization_id_check_enabled" {
   type        = bool
   default     = true
 }
+
+variable "vpc_enabled" {
+  description = "Whether to deploy OpenSearch in a VPC"
+  type        = bool
+  default     = true
+}
+
+variable "vpc_id" {
+  description = "VPC ID for OpenSearch deployment"
+  type        = string
+  default     = null
+}
+
+variable "subnet_ids" {
+  description = "Subnet IDs for OpenSearch deployment"
+  type        = list(string)
+  default     = []
+}
+
