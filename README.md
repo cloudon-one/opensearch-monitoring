@@ -136,12 +136,6 @@ terraform apply
 
 ### Cross-Account Setup
 
-# Lambda Fleet Monitoring Solution
-
-[Previous sections remain the same until "Cross-Account Setup"]
-
-## Cross-Account Setup
-
 ### Step 1: Generate Trust Policy
 
 First, install the requirements and run the trust policy generator script:
