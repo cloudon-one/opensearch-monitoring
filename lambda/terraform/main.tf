@@ -37,55 +37,6 @@ resource "random_password" "opensearch_master" {
   special = true
 }
 
-# Lambda IAM Role
-resource "aws_iam_role" "lambda_monitoring" {
-  name = "lambda-monitoring-role"
-
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Action = "sts:AssumeRole"
-        Effect = "Allow"
-        Principal = {
-          Service = "lambda.amazonaws.com"
-        }
-      }
-    ]
-  })
-}
-
-# Lambda IAM Policy
-resource "aws_iam_role_policy" "lambda_monitoring" {
-  name = "lambda-monitoring-policy"
-  role = aws_iam_role.lambda_monitoring.id
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Action = [
-          "sts:AssumeRole",
-          "cloudwatch:GetMetricData",
-          "lambda:ListFunctions",
-          "logs:CreateLogGroup",
-          "logs:CreateLogStream",
-          "logs:PutLogEvents"
-        ]
-        Resource = "*"
-      },
-      {
-        Effect = "Allow"
-        Action = [
-          "es:ESHttp*"
-        ]
-        Resource = "${aws_opensearch_domain.monitoring.arn}/*"
-      }
-    ]
-  })
-}
-
 # Lambda Function
 resource "aws_lambda_function" "monitoring" {
   filename         = "function/lambda_function.zip"
