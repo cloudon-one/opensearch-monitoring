@@ -108,7 +108,7 @@ class lambda,role1,role2,roleN,functions1,functions2,functionsN,metrics1,metrics
 1. Clone the repository:
 ```bash
 git clone https://github.com/cloudon-one/opensearch-monitoring.git
-cd opensearch-monitoring/lambda
+cd opensearch-monitoring/lambda/terraform
 ```
 
 2. Create a `terraform.tfvars` file:
